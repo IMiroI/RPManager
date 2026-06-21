@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Éditeur — RPManager</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    .editor-layout {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      gap: 0;
+      min-height: calc(100vh - 65px);
+    }
+    .editor-nav {
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      padding: 24px 0;
+      position: sticky;
+      top: 65px;
+      height: calc(100vh - 65px);
+      overflow-y: auto;
+    }
+    .editor-nav-item {
+      display: block;
+      padding: 10px 24px;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      border-left: 3px solid transparent;
+      transition: all var(--transition);
+      background: none;
+      border-right: none;
+      border-top: none;
+      border-bottom: none;
+      width: 100%;
+      text-align: left;
+    }
+    .editor-nav-item:hover { color: var(--text); background: var(--card); }
+    .editor-nav-item.active { color: var(--accent-light); border-left-color: var(--accent); background: rgba(124,92,191,0.08); }
+    .editor-main { padding: 32px; overflow-y: auto; }
+    .editor-section { display: none; }
+    .editor-section.active { display: block; }
+    .editor-section-title {
+      font-size: 1.3rem;
+      font-weight: 800;
+      margin-bottom: 4px;
+    }
+    .editor-section-subtitle {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      margin-bottom: 28px;
+    }
+    .save-bar {
+      position: fixed;
+      bottom: 0;
+      right: 0;
+      left: 220px;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      padding: 14px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      z-index: 50;
+    }
+    .save-status { font-size: 0.85rem; color: var(--text-muted); }
+    .save-actions { display: flex; gap: 10px; }
+    .editor-main { padding-bottom: 80px; }
+    .char-color-dot {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      display: inline-block;
+      vertical-align: middle;
+      border: 2px solid var(--border);
+    }
+    .theme-preview {
+      height: 6px;
+      border-radius: 3px;
+      margin-top: 8px;
+    }
+    @media (max-width: 768px) {
+      .editor-layout { grid-template-columns: 1fr; }
+      .editor-nav { position: static; height: auto; display: flex; overflow-x: auto; padding: 8px 0; border-right: none; border-bottom: 1px solid var(--border); }
+      .editor-nav-item { white-space: nowrap; border-left: none; border-bottom: 3px solid transparent; padding: 8px 16px; }
+      .editor-nav-item.active { border-bottom-color: var(--accent); border-left-color: transparent; }
+      .save-bar { left: 0; }
+    }
+  </style>
+</head>
+<body>
+  <header class="page-header">
+    <div class="container" style="display:flex;align-items:center;justify-content:space-between;">
+      <a href="/" class="logo">
+        <div class="logo-icon">🎭</div>
+        <span class="logo-text">RPManager</span>
+      </a>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <span id="page-title" class="text-muted text-sm">Nouveau Roleplay</span>
+        <a href="/" class="btn btn-ghost btn-sm">← Retour</a>
+      </div>
+    </div>
+  </header>
+
+  <div class="editor-layout">
+    <nav class="editor-nav">
+      <button class="editor-nav-item active" data-section="infos">📝 Informations</button>
+      <button class="editor-nav-item" data-section="personnages">🧙 Personnages <span id="char-count-badge" class="badge badge-accent" style="margin-left:4px;">0</span></button>
+      <button class="editor-nav-item" data-section="scenario">📜 Scénario</button>
+    </nav>
+
+    <div class="editor-main">
+      <!-- Section: Informations -->
+      <div class="editor-section active" id="section-infos">
+        <h2 class="editor-section-title">Informations du Roleplay</h2>
+        <p class="editor-section-subtitle">Définissez l'identité de votre aventure.</p>
+
+        <div class="form-group">
+          <label class="form-label">Nom de l'aventure *</label>
+          <input type="text" class="form-input" id="rp-name" placeholder="Ex: La Quête de Merlin" maxlength="80">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Description</label>
+          <textarea class="form-textarea" id="rp-description" placeholder="Décrivez l'univers, l'ambiance et les enjeux de votre aventure..." rows="4"></textarea>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Couleur du thème</label>
+            <div class="color-input-group">
+              <input type="color" id="rp-color" value="#8B6914">
+              <input type="text" class="form-input" id="rp-color-text" value="#8B6914" placeholder="#rrggbb" style="font-family:monospace;">
+            </div>
+            <div class="theme-preview" id="theme-preview" style="background:#8B6914;"></div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Nombre max de joueurs</label>
+            <input type="number" class="form-input" id="rp-max-players" value="10" min="1" max="20">
+          </div>
+        </div>
+      </div>
+
+      <!-- Section: Personnages -->
+      <div class="editor-section" id="section-personnages">
+        <div class="section-header">
+          <div>
+            <h2 class="editor-section-title">Personnages</h2>
+            <p class="editor-section-subtitle">Les héros que les joueurs pourront incarner.</p>
+          </div>
+          <button class="btn btn-primary" onclick="openCharModal()">+ Ajouter</button>
+        </div>
+
+        <div id="characters-list" style="margin-top:16px;">
+          <p class="text-muted text-sm">Aucun personnage. Cliquez sur "+ Ajouter" pour créer le premier.</p>
+        </div>
+      </div>
+
+      <!-- Section: Scénario -->
+      <div class="editor-section" id="section-scenario">
+        <div class="section-header">
+          <div>
+            <h2 class="editor-section-title">Étapes du Scénario</h2>
+            <p class="editor-section-subtitle">Les grandes phases de votre aventure (optionnel, pour le MJ).</p>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="addStep()">+ Étape</button>
+        </div>
+        <div id="steps-list" style="margin-top:16px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Save bar -->
+  <div class="save-bar">
+    <span class="save-status" id="save-status">Non enregistré</span>
+    <div class="save-actions">
+      <a href="/" class="btn btn-ghost">Annuler</a>
+      <button class="btn btn-primary" onclick="saveRoleplay()">💾 Enregistrer</button>
+    </div>
+  </div>
+
+  <!-- Character Modal -->
+  <div class="modal-overlay" id="char-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title" id="char-modal-title">Nouveau Personnage</h3>
+        <button class="modal-close" onclick="closeCharModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="tabs">
+          <button class="tab-btn active" data-tab="identity">Identité</button>
+          <button class="tab-btn" data-tab="stats">Statistiques</button>
+          <button class="tab-btn" data-tab="skills">Compétences</button>
+        </div>
+
+        <!-- Tab: Identité -->
+        <div class="tab-panel active" id="tab-identity">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Nom *</label>
+              <input type="text" class="form-input" id="char-name" placeholder="Le Chevalier">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Titre</label>
+              <input type="text" class="form-input" id="char-title" placeholder="Gardien de la Lumière">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Icône (emoji)</label>
+              <input type="text" class="form-input" id="char-icon" placeholder="⚔️" maxlength="4" style="font-size:1.5rem;text-align:center;">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Couleur</label>
+              <div class="color-input-group">
+                <input type="color" id="char-color" value="#8B4513">
+                <input type="text" class="form-input" id="char-color-text" value="#8B4513" style="font-family:monospace;">
+              </div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Histoire du personnage</label>
+            <textarea class="form-textarea" id="char-backstory" rows="4" placeholder="Racontez l'origine et la motivation de ce personnage..."></textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Note spéciale (optionnel)</label>
+            <input type="text" class="form-input" id="char-special-note" placeholder="Ex: Se réveille avant les autres">
+          </div>
+        </div>
+
+        <!-- Tab: Stats -->
+        <div class="tab-panel" id="tab-stats">
+          <p class="text-sm text-muted" style="margin-bottom:16px;">Définissez les statistiques de base du personnage.</p>
+          <div class="stats-grid">
+            <div class="stat-input-group">
+              <label class="stat-label">PV</label>
+              <input type="number" class="stat-input" id="stat-pdv" value="10" min="1">
+            </div>
+            <div class="stat-input-group">
+              <label class="stat-label">Force</label>
+              <input type="number" class="stat-input" id="stat-force" value="5" min="1">
+            </div>
+            <div class="stat-input-group">
+              <label class="stat-label">Persuasion</label>
+              <input type="number" class="stat-input" id="stat-persuasion" value="5" min="1">
+            </div>
+            <div class="stat-input-group">
+              <label class="stat-label">Perception</label>
+              <input type="number" class="stat-input" id="stat-perception" value="5" min="1">
+            </div>
+            <div class="stat-input-group">
+              <label class="stat-label">Dextérité</label>
+              <input type="number" class="stat-input" id="stat-dexterite" value="5" min="1">
+            </div>
+            <div class="stat-input-group">
+              <label class="stat-label">Intelligence</label>
+              <input type="number" class="stat-input" id="stat-intelligence" value="5" min="1">
+            </div>
+            <div class="stat-input-group">
+              <label class="stat-label">Sagesse</label>
+              <input type="number" class="stat-input" id="stat-sagesse" value="5" min="1">
+            </div>
+            <div class="stat-input-group">
+              <label class="stat-label">Constitution</label>
+              <input type="number" class="stat-input" id="stat-constitution" value="5" min="1">
+            </div>
+            <div class="stat-input-group">
+              <label class="stat-label">Charisme</label>
+              <input type="number" class="stat-input" id="stat-charisme" value="5" min="1">
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab: Compétences -->
+        <div class="tab-panel" id="tab-skills">
+          <div style="margin-bottom:24px;">
+            <div class="section-header" style="margin-bottom:10px;">
+              <div>
+                <h4>Compétences visibles</h4>
+                <p class="text-sm text-muted">Révélées dès que le joueur retourne la carte.</p>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="addSkill('visible')">+ Ajouter</button>
+            </div>
+            <div id="visible-skills-list"></div>
+          </div>
+          <div>
+            <div class="section-header" style="margin-bottom:10px;">
+              <div>
+                <h4>Compétences cachées</h4>
+                <p class="text-sm text-muted">Révélées au joueur par le MJ pendant la partie.</p>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="addSkill('hidden')">+ Ajouter</button>
+            </div>
+            <div id="hidden-skills-list"></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeCharModal()">Annuler</button>
+        <button class="btn btn-primary" onclick="saveCharacter()">Enregistrer le personnage</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-container" id="toast-container"></div>
+
+  <script>
+    const LS_KEY = 'rpmanager_roleplays';
+
+    // ─── localStorage helpers ────────────────────────
+    function lsGet() {
+      try { return JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch { return {}; }
+    }
+    function lsSave(rp) {
+      const data = lsGet();
+      data[rp.id] = rp;
+      localStorage.setItem(LS_KEY, JSON.stringify(data));
+    }
+
+    // ─── State ───────────────────────────────────────
+    let characters = [];
+    let scenarioSteps = [];
+    let editingCharIndex = -1;
+    let roleplaysId = null;
+
+    // ─── Init ────────────────────────────────────────
+    const pathParts = window.location.pathname.split('/');
+    const rpIdFromUrl = pathParts[2];
+
+    if (rpIdFromUrl) {
+      document.getElementById('page-title').textContent = 'Modifier le Roleplay';
+      loadExisting(rpIdFromUrl);
+    }
+
+    function loadExisting(id) {
+      const rp = lsGet()[id];
+      if (!rp) { showToast('Roleplay introuvable', 'error'); return; }
+      roleplaysId = rp.id;
+      document.getElementById('rp-name').value = rp.name || '';
+      document.getElementById('rp-description').value = rp.description || '';
+      document.getElementById('rp-color').value = rp.themeColor || '#8B6914';
+      document.getElementById('rp-color-text').value = rp.themeColor || '#8B6914';
+      document.getElementById('rp-max-players').value = rp.maxPlayers || 10;
+      document.getElementById('theme-preview').style.background = rp.themeColor || '#8B6914';
+      characters = rp.characters || [];
+      scenarioSteps = (rp.scenarioSteps || []).map((s, i) =>
+        typeof s === 'string' ? { id: 'step_' + i, title: s, details: '' } : { ...s }
+      );
+      renderCharacters();
+      renderSteps();
+      document.getElementById('save-status').textContent = 'Chargé';
+    }
+
+    // ─── Navigation ───────────────────────────────────
+    document.querySelectorAll('.editor-nav-item').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.editor-nav-item').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.editor-section').forEach(s => s.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById(`section-${btn.dataset.section}`).classList.add('active');
+      });
+    });
+
+    // ─── Color sync ───────────────────────────────────
+    document.getElementById('rp-color').addEventListener('input', e => {
+      document.getElementById('rp-color-text').value = e.target.value;
+      document.getElementById('theme-preview').style.background = e.target.value;
+    });
+    document.getElementById('rp-color-text').addEventListener('input', e => {
+      if (/^#[0-9a-fA-F]{6}$/.test(e.target.value)) {
+        document.getElementById('rp-color').value = e.target.value;
+        document.getElementById('theme-preview').style.background = e.target.value;
+      }
+    });
+    document.getElementById('char-color').addEventListener('input', e => {
+      document.getElementById('char-color-text').value = e.target.value;
+    });
+    document.getElementById('char-color-text').addEventListener('input', e => {
+      if (/^#[0-9a-fA-F]{6}$/.test(e.target.value)) {
+        document.getElementById('char-color').value = e.target.value;
+      }
+    });
+
+    // ─── Tabs ────────────────────────────────────────
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
+      });
+    });
+
+    // ─── Characters ───────────────────────────────────
+    function renderCharacters() {
+      const list = document.getElementById('characters-list');
+      document.getElementById('char-count-badge').textContent = characters.length;
+
+      if (characters.length === 0) {
+        list.innerHTML = '<p class="text-muted text-sm">Aucun personnage. Cliquez sur "+ Ajouter" pour créer le premier.</p>';
+        return;
+      }
+
+      list.innerHTML = characters.map((c, i) => `
+        <div class="character-item" onclick="editChar(${i})">
+          <div class="character-item-icon">${c.icon || '❓'}</div>
+          <div class="character-item-info">
+            <div class="character-item-name">
+              <span class="char-color-dot" style="background:${c.color || '#888'}"></span>
+              ${esc(c.name)}
+            </div>
+            <div class="character-item-title">${esc(c.title || '')} · ${(c.visibleSkills?.length||0) + (c.hiddenSkills?.length||0)} compétences</div>
+          </div>
+          <div class="character-item-actions" onclick="event.stopPropagation()">
+            <button class="btn btn-ghost btn-sm" onclick="editChar(${i})">✏</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteChar(${i})">🗑</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function openCharModal() {
+      editingCharIndex = -1;
+      document.getElementById('char-modal-title').textContent = 'Nouveau Personnage';
+      resetCharForm();
+      document.getElementById('char-modal').classList.add('open');
+      // Show identity tab
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      document.querySelector('[data-tab="identity"]').classList.add('active');
+      document.getElementById('tab-identity').classList.add('active');
+    }
+
+    function editChar(index) {
+      editingCharIndex = index;
+      const c = characters[index];
+      document.getElementById('char-modal-title').textContent = `Modifier — ${c.name}`;
+
+      document.getElementById('char-name').value = c.name || '';
+      document.getElementById('char-title').value = c.title || '';
+      document.getElementById('char-icon').value = c.icon || '';
+      document.getElementById('char-color').value = c.color || '#888888';
+      document.getElementById('char-color-text').value = c.color || '#888888';
+      document.getElementById('char-backstory').value = c.backstory || '';
+      document.getElementById('char-special-note').value = c.specialNote || '';
+
+      const s = c.stats || {};
+      document.getElementById('stat-pdv').value = s.pointsDeVie || 10;
+      document.getElementById('stat-force').value = s.force || 5;
+      document.getElementById('stat-persuasion').value = s.persuasion || 5;
+      document.getElementById('stat-perception').value = s.perception || 5;
+      document.getElementById('stat-dexterite').value = s.dexterite || 5;
+      document.getElementById('stat-intelligence').value = s.intelligence || 5;
+      document.getElementById('stat-sagesse').value = s.sagesse || 5;
+      document.getElementById('stat-constitution').value = s.constitution || 5;
+      document.getElementById('stat-charisme').value = s.charisme || 5;
+
+      renderSkillsList('visible', c.visibleSkills || []);
+      renderSkillsList('hidden', c.hiddenSkills || []);
+
+      document.getElementById('char-modal').classList.add('open');
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      document.querySelector('[data-tab="identity"]').classList.add('active');
+      document.getElementById('tab-identity').classList.add('active');
+    }
+
+    function closeCharModal() {
+      document.getElementById('char-modal').classList.remove('open');
+    }
+
+    function resetCharForm() {
+      document.getElementById('char-name').value = '';
+      document.getElementById('char-title').value = '';
+      document.getElementById('char-icon').value = '';
+      document.getElementById('char-color').value = '#8B4513';
+      document.getElementById('char-color-text').value = '#8B4513';
+      document.getElementById('char-backstory').value = '';
+      document.getElementById('char-special-note').value = '';
+      ['pdv','force','persuasion','perception','dexterite','intelligence','sagesse','constitution','charisme'].forEach(s => {
+        document.getElementById(`stat-${s}`).value = s === 'pdv' ? 10 : 5;
+      });
+      renderSkillsList('visible', []);
+      renderSkillsList('hidden', []);
+    }
+
+    function saveCharacter() {
+      const name = document.getElementById('char-name').value.trim();
+      if (!name) { showToast('Le nom est requis', 'error'); return; }
+
+      const character = {
+        id: editingCharIndex >= 0 ? characters[editingCharIndex].id : slugify(name),
+        name,
+        title: document.getElementById('char-title').value.trim(),
+        icon: document.getElementById('char-icon').value.trim() || '❓',
+        color: document.getElementById('char-color').value,
+        backstory: document.getElementById('char-backstory').value.trim(),
+        specialNote: document.getElementById('char-special-note').value.trim() || undefined,
+        stats: {
+          pointsDeVie: parseInt(document.getElementById('stat-pdv').value) || 10,
+          force: parseInt(document.getElementById('stat-force').value) || 5,
+          persuasion: parseInt(document.getElementById('stat-persuasion').value) || 5,
+          perception: parseInt(document.getElementById('stat-perception').value) || 5,
+          dexterite: parseInt(document.getElementById('stat-dexterite').value) || 5,
+          intelligence: parseInt(document.getElementById('stat-intelligence').value) || 5,
+          sagesse: parseInt(document.getElementById('stat-sagesse').value) || 5,
+          constitution: parseInt(document.getElementById('stat-constitution').value) || 5,
+          charisme: parseInt(document.getElementById('stat-charisme').value) || 5
+        },
+        visibleSkills: collectSkills('visible'),
+        hiddenSkills: collectSkills('hidden')
+      };
+
+      if (editingCharIndex >= 0) {
+        characters[editingCharIndex] = character;
+      } else {
+        characters.push(character);
+      }
+
+      closeCharModal();
+      renderCharacters();
+      document.getElementById('save-status').textContent = 'Modifications non enregistrées';
+    }
+
+    function deleteChar(index) {
+      if (!confirm(`Supprimer "${characters[index].name}" ?`)) return;
+      characters.splice(index, 1);
+      renderCharacters();
+      document.getElementById('save-status').textContent = 'Modifications non enregistrées';
+    }
+
+    // ─── Skills ──────────────────────────────────────
+    function renderSkillsList(type, skills) {
+      const container = document.getElementById(`${type}-skills-list`);
+      container.innerHTML = skills.map((s, i) => `
+        <div class="skill-item" id="${type}-skill-${i}">
+          <div class="skill-item-inputs">
+            <input type="text" class="form-input" placeholder="Nom de la compétence" value="${esc(s.name || '')}" data-type="${type}" data-field="name" data-index="${i}">
+            <input type="text" class="form-input" placeholder="Description de la compétence" value="${esc(s.description || '')}" data-type="${type}" data-field="desc" data-index="${i}">
+          </div>
+          <button class="skill-remove" onclick="removeSkill('${type}', ${i})">✕</button>
+        </div>
+      `).join('');
+    }
+
+    function addSkill(type) {
+      const container = document.getElementById(`${type}-skills-list`);
+      const items = container.querySelectorAll('.skill-item');
+      const index = items.length;
+      const div = document.createElement('div');
+      div.className = 'skill-item';
+      div.id = `${type}-skill-${index}`;
+      div.innerHTML = `
+        <div class="skill-item-inputs">
+          <input type="text" class="form-input" placeholder="Nom de la compétence" data-type="${type}" data-field="name" data-index="${index}">
+          <input type="text" class="form-input" placeholder="Description de la compétence" data-type="${type}" data-field="desc" data-index="${index}">
+        </div>
+        <button class="skill-remove" onclick="removeSkill('${type}', ${index})">✕</button>
+      `;
+      container.appendChild(div);
+    }
+
+    function removeSkill(type, index) {
+      document.getElementById(`${type}-skill-${index}`)?.remove();
+      // Re-index
+      const container = document.getElementById(`${type}-skills-list`);
+      container.querySelectorAll('.skill-item').forEach((item, i) => {
+        item.id = `${type}-skill-${i}`;
+        item.querySelectorAll('[data-index]').forEach(el => el.dataset.index = i);
+        item.querySelector('.skill-remove').setAttribute('onclick', `removeSkill('${type}', ${i})`);
+      });
+    }
+
+    function collectSkills(type) {
+      const container = document.getElementById(`${type}-skills-list`);
+      const skills = [];
+      container.querySelectorAll('.skill-item').forEach((item, i) => {
+        const name = item.querySelector('[data-field="name"]')?.value?.trim();
+        const desc = item.querySelector('[data-field="desc"]')?.value?.trim();
+        if (name) {
+          skills.push({ id: slugify(name) + '_' + i, name, description: desc || '' });
+        }
+      });
+      return skills;
+    }
+
+    // ─── Steps ───────────────────────────────────────
+    function renderSteps() {
+      const list = document.getElementById('steps-list');
+      if (scenarioSteps.length === 0) {
+        list.innerHTML = '<p class="text-muted text-sm">Aucune étape définie.</p>';
+        return;
+      }
+      list.innerHTML = scenarioSteps.map((step, i) => `
+        <div class="step-item" id="step-${i}" style="flex-direction:column;align-items:stretch;gap:8px;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <div class="step-number">${i + 1}</div>
+            <input type="text" class="form-input" value="${esc(step.title)}" placeholder="Titre de l'étape"
+                   oninput="scenarioSteps[${i}].title = this.value" style="flex:1;">
+            <button class="step-remove" onclick="removeStep(${i})">✕</button>
+          </div>
+          <textarea class="form-textarea" rows="2" placeholder="Détails, notes pour le MJ (optionnel)..."
+                    style="margin-left:44px;font-size:0.85rem;resize:vertical;"
+                    oninput="scenarioSteps[${i}].details = this.value">${esc(step.details || '')}</textarea>
+        </div>
+      `).join('');
+    }
+
+    function addStep() {
+      scenarioSteps.push({ id: 'step_' + Date.now(), title: '', details: '' });
+      renderSteps();
+      const inputs = document.querySelectorAll('.step-item input[type="text"]');
+      inputs[inputs.length - 1]?.focus();
+    }
+
+    function removeStep(index) {
+      scenarioSteps.splice(index, 1);
+      renderSteps();
+    }
+
+    // ─── Save ────────────────────────────────────────
+    function saveRoleplay() {
+      const name = document.getElementById('rp-name').value.trim();
+      if (!name) {
+        showToast('Le nom de l\'aventure est requis', 'error');
+        document.querySelector('[data-section="infos"]').click();
+        document.getElementById('rp-name').focus();
+        return;
+      }
+
+      const stepsFromDom = scenarioSteps.map((step, i) => {
+        const item = document.getElementById(`step-${i}`);
+        const title = item?.querySelector('input[type="text"]')?.value.trim() || step.title || '';
+        const details = item?.querySelector('textarea')?.value.trim() || step.details || '';
+        return { id: step.id || 'step_' + i, title, details };
+      }).filter(s => s.title);
+
+      const now = new Date().toISOString();
+      if (!roleplaysId) roleplaysId = slugify(name) || ('rp_' + Date.now());
+
+      const roleplay = {
+        id: roleplaysId,
+        name,
+        description: document.getElementById('rp-description').value.trim(),
+        themeColor: document.getElementById('rp-color').value,
+        maxPlayers: parseInt(document.getElementById('rp-max-players').value) || 10,
+        characters,
+        scenarioSteps: stepsFromDom,
+        createdAt: lsGet()[roleplaysId]?.createdAt || now,
+        updatedAt: now
+      };
+
+      lsSave(roleplay);
+      history.replaceState(null, '', `/editor/${roleplaysId}`);
+      document.getElementById('save-status').textContent = `Enregistré à ${new Date().toLocaleTimeString()}`;
+      showToast('Roleplay enregistré !', 'success');
+    }
+
+    // ─── Utils ───────────────────────────────────────
+    function slugify(str) {
+      return str.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+    }
+
+    function esc(s) {
+      return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function showToast(msg, type = 'info') {
+      const c = document.getElementById('toast-container');
+      const t = document.createElement('div');
+      t.className = `toast ${type}`;
+      t.textContent = msg;
+      c.appendChild(t);
+      setTimeout(() => t.remove(), 3200);
+    }
+
+    document.getElementById('char-modal').addEventListener('click', e => {
+      if (e.target === document.getElementById('char-modal')) closeCharModal();
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Joueur — RPManager</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/cards.css">
+  <style>
+    .tabs-player {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 20px;
+    }
+    .tab-player {
+      padding: 10px 20px;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--text-muted);
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 0.9rem;
+      margin-bottom: -1px;
+      transition: all var(--transition);
+    }
+    .tab-player.active { color: var(--theme, var(--gold)); border-bottom-color: var(--theme, var(--gold)); }
+    .tab-player-panel { display: none; }
+    .tab-player-panel.active { display: block; }
+    .msg-badge {
+      display: inline-flex;
+      width: 18px;
+      height: 18px;
+      background: var(--danger);
+      color: white;
+      border-radius: 50%;
+      font-size: 0.65rem;
+      font-weight: 800;
+      align-items: center;
+      justify-content: center;
+      margin-left: 6px;
+    }
+  </style>
+</head>
+<body class="game-body">
+
+  <!-- Header -->
+  <div class="session-header" id="top-header" style="display:none;">
+    <span class="session-title" id="header-roleplay-name"></span>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <span class="session-phase" id="header-phase">Lobby</span>
+    </div>
+  </div>
+
+  <!-- SCREEN: Join -->
+  <div class="join-screen screen active" id="screen-join">
+    <div class="join-card">
+      <div class="join-card-icon">🎭</div>
+      <h2 id="join-roleplay-name">Rejoindre la partie</h2>
+      <p id="join-roleplay-desc">Chargement...</p>
+      <div class="join-code-display" id="join-code-display">------</div>
+      <div class="form-group" style="text-align:left;">
+        <label class="form-label">Votre nom de joueur</label>
+        <input type="text" class="form-input" id="player-name-input" placeholder="Entrez votre nom..." maxlength="30" autocomplete="off">
+      </div>
+      <button class="btn btn-gold btn-lg w-full" onclick="joinGame()" id="join-btn">Rejoindre</button>
+      <div id="join-error" class="text-sm" style="color:var(--danger);margin-top:12px;display:none;"></div>
+    </div>
+  </div>
+
+  <!-- SCREEN: Lobby -->
+  <div class="screen" id="screen-lobby">
+    <div class="lobby-screen">
+      <div style="font-size:3rem;margin-bottom:16px;">⏳</div>
+      <h2 id="lobby-name"></h2>
+      <p class="text-muted" style="margin-top:8px;">Vous avez rejoint la session avec succès.</p>
+      <div class="waiting-indicator">
+        <div class="pulse-dot"></div>
+        <span>En attente que le MJ distribue les cartes...</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCREEN: Card Selection -->
+  <div class="screen" id="screen-selection">
+    <div class="game-content">
+      <div class="cards-area">
+        <div class="cards-area-title">
+          🃏 Vos cartes
+          <span class="text-muted text-sm" style="font-weight:400;">Retournez une carte pour découvrir votre personnage</span>
+        </div>
+        <div class="cards-grid" id="player-cards-grid"></div>
+      </div>
+
+      <div id="pool-area" style="display:none;">
+        <div class="cards-area">
+          <div class="cards-area-title">Pool commun — Échangez votre personnage</div>
+          <div class="pool-cards" id="pool-cards-grid"></div>
+        </div>
+      </div>
+
+      <div class="action-bar">
+        <div id="selection-status" class="text-sm text-muted"></div>
+        <button class="btn btn-gold" id="btn-validate" onclick="validateSelection()" style="display:none;">
+          ✓ Valider mon personnage
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCREEN: Playing -->
+  <div class="screen" id="screen-playing">
+    <div class="game-content">
+      <div class="tabs-player">
+        <button class="tab-player active" data-ptab="character">Personnage<span class="msg-badge" id="char-badge" style="display:none;">0</span></button>
+        <button class="tab-player" data-ptab="skills">Compétences<span class="msg-badge" id="skills-badge" style="display:none;">0</span></button>
+        <button class="tab-player" data-ptab="inventory">Inventaire<span class="msg-badge" id="inv-badge" style="display:none;">0</span></button>
+        <button class="tab-player" data-ptab="messages">Messages<span class="msg-badge" id="msg-badge" style="display:none;">0</span></button>
+        <button class="tab-player" data-ptab="dice">🎲 Dés</button>
+      </div>
+
+      <!-- Character tab -->
+      <div class="tab-player-panel active" id="ptab-character">
+        <div class="character-sheet" id="character-sheet">
+          <div class="character-sheet-header" id="char-header"></div>
+          <div class="character-sheet-body">
+            <div style="margin-bottom:20px;">
+              <div class="skills-title" style="margin-bottom:12px;">Statistiques</div>
+              <div class="stats-display" id="stats-display"></div>
+            </div>
+            <div>
+              <div class="skills-title" style="margin-bottom:8px;">Histoire</div>
+              <p class="text-sm text-muted" id="char-backstory-text"></p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Skills tab -->
+      <div class="tab-player-panel" id="ptab-skills">
+        <div class="skills-list" id="skills-list"></div>
+      </div>
+
+      <!-- Inventory tab -->
+      <div class="tab-player-panel" id="ptab-inventory">
+        <div id="inventory-empty" class="text-muted text-sm">Votre inventaire est vide.</div>
+        <div id="char-inventory-list"></div>
+      </div>
+
+      <!-- Messages tab -->
+      <div class="tab-player-panel" id="ptab-messages">
+        <div id="messages-list" class="messages-list" style="min-height:80px;max-height:calc(100vh - 280px);overflow-y:auto;"></div>
+        <div style="display:flex;gap:8px;margin-top:12px;">
+          <input type="text" class="form-input" id="msg-input" placeholder="Écrire au MJ..." style="flex:1;"
+                 onkeydown="if(event.key==='Enter')sendMessageToGM()">
+          <button class="btn btn-primary btn-sm" onclick="sendMessageToGM()">Envoyer</button>
+        </div>
+      </div>
+      <!-- Dice tab -->
+      <div class="tab-player-panel" id="ptab-dice">
+        <div style="max-width:360px;margin:0 auto;padding:8px 0;">
+          <div style="display:flex;align-items:flex-end;justify-content:center;gap:12px;margin-bottom:24px;">
+            <div style="text-align:center;">
+              <label class="form-label" style="display:block;margin-bottom:6px;">Nombre</label>
+              <input type="number" class="form-input" id="dice-count" value="1" min="1" max="20"
+                     style="width:72px;text-align:center;font-size:1.1rem;font-weight:700;">
+            </div>
+            <div style="font-size:1.6rem;font-weight:900;color:var(--text-muted);padding-bottom:6px;">d</div>
+            <div style="text-align:center;">
+              <label class="form-label" style="display:block;margin-bottom:6px;">Faces</label>
+              <input type="number" class="form-input" id="dice-sides" value="100" min="2" max="1000"
+                     style="width:90px;text-align:center;font-size:1.1rem;font-weight:700;">
+            </div>
+          </div>
+          <button class="btn btn-gold btn-lg w-full" onclick="rollDice()" style="margin-bottom:24px;">🎲 Lancer</button>
+          <div id="dice-history"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const code = window.location.pathname.split('/').pop().toUpperCase();
+    const socket = io();
+    let playerName = null;
+    let currentState = null;
+    let unreadMessages = 0;
+    let unreadStats = 0;
+    let unreadSkills = 0;
+    let unreadInventory = 0;
+    let roleplay = null;
+    let activeTab = 'character';
+
+    // ─── Pre-load session info ────────────────────────
+    fetch(`/api/sessions/${code}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) {
+          showJoinError('Session introuvable. Vérifiez le code.');
+          return;
+        }
+        const rp = data.roleplay;
+        document.getElementById('join-roleplay-name').textContent = rp.name;
+        document.getElementById('join-code-display').textContent = code;
+        document.getElementById('join-roleplay-desc').textContent = `Rejoignez l'aventure avec le code ci-dessous.`;
+        document.title = rp.name;
+        document.documentElement.style.setProperty('--theme', rp.themeColor);
+      })
+      .catch(() => {});
+
+    // ─── Join ─────────────────────────────────────────
+    document.getElementById('player-name-input').addEventListener('keydown', e => {
+      if (e.key === 'Enter') joinGame();
+    });
+
+    function joinGame() {
+      const name = document.getElementById('player-name-input').value.trim();
+      if (!name) return;
+      playerName = name;
+      document.getElementById('join-btn').disabled = true;
+      document.getElementById('join-error').style.display = 'none';
+      showScreen('lobby');
+      document.getElementById('lobby-name').textContent = `Bienvenue, ${name} !`;
+      socket.emit('player:join', { code, name });
+    }
+
+    socket.on('session:info', ({ roleplay: rp }) => {
+      roleplay = rp;
+      document.title = rp.name;
+      document.documentElement.style.setProperty('--theme', rp.themeColor);
+      document.getElementById('header-roleplay-name').textContent = rp.name;
+      document.getElementById('join-roleplay-name').textContent = rp.name;
+      document.getElementById('join-code-display').textContent = code;
+    });
+
+    socket.on('player:joined', ({ name }) => {
+      document.getElementById('lobby-name').textContent = `Bienvenue, ${name} !`;
+      document.getElementById('top-header').style.display = 'flex';
+      showScreen('lobby');
+    });
+
+    socket.on('player:error', (msg) => {
+      showScreen('join');
+      document.getElementById('join-btn').disabled = false;
+      showJoinError(msg);
+    });
+
+    socket.on('player:state', (state) => {
+      if (!state) return;
+      currentState = state;
+      updateHeaderPhase(state.phase);
+
+      if (state.phase === 'lobby') {
+        showScreen('lobby');
+      } else if (state.phase === 'card_selection') {
+        showScreen('selection');
+        renderSelectionScreen(state);
+      } else if (state.phase === 'playing') {
+        showScreen('playing');
+        renderPlayingScreen(state);
+      }
+    });
+
+    socket.on('player:gameStarted', () => {
+      showToast('La partie commence !', 'success');
+    });
+
+    socket.on('player:skillRevealed', (skill) => {
+      if (activeTab !== 'skills') {
+        unreadSkills++;
+        showBadge('skills-badge', unreadSkills);
+      }
+      showToast(`🔓 Nouvelle compétence débloquée : ${skill.name} !`, 'success');
+    });
+
+    socket.on('player:statsUpdated', () => {
+      if (activeTab !== 'character') {
+        unreadStats++;
+        showBadge('char-badge', unreadStats);
+      }
+      showToast('📊 Le MJ a modifié vos statistiques !', 'info');
+    });
+
+    socket.on('player:inventoryUpdated', () => {
+      if (activeTab !== 'inventory') {
+        unreadInventory++;
+        showBadge('inv-badge', unreadInventory);
+      }
+      showToast('🎒 Le MJ a modifié votre inventaire !', 'info');
+    });
+
+    socket.on('player:privateMessage', (msg) => {
+      unreadMessages++;
+      if (activeTab !== 'messages') {
+        const badge = document.getElementById('msg-badge');
+        badge.textContent = unreadMessages;
+        badge.style.display = 'inline-flex';
+      }
+      if (currentState) {
+        if (!currentState.messages) currentState.messages = [];
+        currentState.messages.push(msg);
+      }
+      renderMessages(currentState?.messages || [msg]);
+      showToast('📩 Message du MJ reçu !', 'info');
+    });
+
+    socket.on('player:reset', () => {
+      showToast('La partie a été réinitialisée.', 'info');
+    });
+
+    // ─── Selection screen ─────────────────────────────
+    function renderSelectionScreen(state) {
+      const grid = document.getElementById('player-cards-grid');
+      const poolArea = document.getElementById('pool-area');
+      const poolGrid = document.getElementById('pool-cards-grid');
+      const status = document.getElementById('selection-status');
+      const btnValidate = document.getElementById('btn-validate');
+
+      // My cards
+      grid.innerHTML = state.cards.map(card => renderCard(card, state)).join('');
+
+      // Pool
+      if (state.hasSelected && state.globalCards?.length > 0 && !state.selectionValidated) {
+        poolArea.style.display = 'block';
+        poolGrid.innerHTML = state.globalCards.map(c => `
+          <div class="pool-card" style="border-top:3px solid ${c.color};" onclick="swapCard('${c.id}')">
+            <div class="pool-card-icon">${c.icon}</div>
+            <div class="pool-card-name">${esc(c.name)}</div>
+            <div class="pool-card-title">${esc(c.title || '')}</div>
+          </div>
+        `).join('');
+      } else {
+        poolArea.style.display = 'none';
+      }
+
+      // Status & button
+      if (state.selectionValidated) {
+        status.textContent = '✓ Sélection validée. En attente des autres joueurs...';
+        btnValidate.style.display = 'none';
+      } else if (state.hasSelected) {
+        status.textContent = 'Vous avez choisi votre personnage.';
+        btnValidate.style.display = 'inline-flex';
+      } else if (state.cards.length > 0) {
+        status.textContent = 'Retournez vos cartes pour découvrir vos personnages.';
+        btnValidate.style.display = 'none';
+      } else {
+        status.textContent = '';
+        btnValidate.style.display = 'none';
+      }
+    }
+
+    function renderCard(card, state) {
+      const isFlipped = card.flipped;
+      const isSelected = card.selected;
+
+      if (!isFlipped) {
+        return `
+          <div class="card-scene">
+            <div class="card-flip${isSelected ? ' selected' : ''}" onclick="flipCard('${card.id}')">
+              <div class="card-back">
+                <div class="card-back-pattern">
+                  <div class="card-back-icon">🎭</div>
+                </div>
+              </div>
+              <div class="card-front"></div>
+            </div>
+          </div>`;
+      }
+
+      const selectionAction = !state.hasSelected
+        ? `onclick="selectCard('${card.id}')"`
+        : '';
+
+      return `
+        <div class="card-scene">
+          <div class="card-flip flipped${isSelected ? ' selected' : ''}" ${!state.hasSelected ? `onclick="selectCard('${card.id}')"` : ''}>
+            <div class="card-back"></div>
+            <div class="card-front">
+              <div class="card-character-color" style="background:${card.color}"></div>
+              <div class="card-icon">${card.icon}</div>
+              <div class="card-name">${esc(card.name)}</div>
+              <div class="card-title">${esc(card.title || '')}</div>
+              <div class="card-skills">
+                ${(card.visibleSkills || []).map(s => `
+                  <div class="card-skill">
+                    <span class="card-skill-name">${esc(s.name)}</span>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          </div>
+        </div>`;
+    }
+
+    // ─── Playing screen ───────────────────────────────
+    function renderPlayingScreen(state) {
+      if (!state.character) return;
+      const c = state.character;
+
+      // Character header
+      document.getElementById('char-header').innerHTML = `
+        <div class="char-big-icon">${c.icon}</div>
+        <div class="char-header-info">
+          <div class="char-big-name" style="color:${c.color}">${esc(c.name)}</div>
+          <div class="char-big-title">${esc(c.title || '')}</div>
+        </div>
+      `;
+
+      // Stats
+      const statsOrder = [
+        ['pointsDeVie','PV'], ['force','Force'], ['persuasion','Persuasion'],
+        ['perception','Perception'], ['dexterite','Dextérité'], ['intelligence','Intelligence'],
+        ['sagesse','Sagesse'], ['constitution','Constitution'], ['charisme','Charisme']
+      ];
+      document.getElementById('stats-display').innerHTML = statsOrder.map(([key, label]) => `
+        <div class="stat-display">
+          <span class="stat-value" style="color:${c.color}">${c.stats?.[key] ?? '?'}</span>
+          <span class="stat-name">${label}</span>
+        </div>
+      `).join('');
+
+      // Backstory
+      document.getElementById('char-backstory-text').textContent = c.backstory || '';
+
+      // Special note
+      const existingNote = document.querySelector('.special-note');
+      if (existingNote) existingNote.remove();
+      if (c.specialNote) {
+        const note = document.createElement('div');
+        note.className = 'special-note';
+        note.style.cssText = 'margin-top:12px;padding:10px;background:rgba(201,162,39,0.1);border-radius:6px;font-size:0.85rem;border-left:3px solid var(--theme,var(--gold));';
+        note.textContent = `📌 ${c.specialNote}`;
+        document.getElementById('char-backstory-text').after(note);
+      }
+
+      // Inventory
+      const invList = document.getElementById('char-inventory-list');
+      const invEmpty = document.getElementById('inventory-empty');
+      if (state.inventory?.length > 0) {
+        invList.innerHTML = state.inventory.map(item => `
+          <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">
+            <span style="color:var(--theme,var(--gold));">🎒</span>
+            <span class="text-sm">${esc(item)}</span>
+          </div>
+        `).join('');
+        invEmpty.style.display = 'none';
+      } else {
+        invList.innerHTML = '';
+        invEmpty.style.display = 'block';
+      }
+
+      // Skills
+      const skillsList = document.getElementById('skills-list');
+      const visibleHtml = (c.visibleSkills || []).map(s => `
+        <div class="skill-entry">
+          <div class="skill-entry-tag tag-visible">Visible</div>
+          <div class="skill-entry-name">${esc(s.name)}</div>
+          <div class="skill-entry-desc">${esc(s.description)}</div>
+        </div>
+      `).join('');
+
+      const revealedIds = c.revealedHiddenSkills?.map(s => s.id) || [];
+      const hiddenHtml = (c.hiddenSkills || []).map(s => {
+        const revealed = revealedIds.includes(s.id);
+        return `
+          <div class="skill-entry ${revealed ? 'hidden-revealed' : 'hidden-locked'}">
+            <div class="skill-entry-tag ${revealed ? 'tag-visible' : 'tag-hidden'}">${revealed ? '✓ Débloquée' : '🔒 Cachée'}</div>
+            <div class="skill-entry-name">${revealed ? esc(s.name) : '???'}</div>
+            <div class="skill-entry-desc">${revealed ? esc(s.description) : 'Cette compétence sera révélée par le MJ au bon moment.'}</div>
+          </div>
+        `;
+      }).join('');
+
+      skillsList.innerHTML = visibleHtml + hiddenHtml;
+
+      // Messages
+      renderMessages(state.messages);
+    }
+
+    function renderMessages(messages) {
+      const list = document.getElementById('messages-list');
+      if (!messages?.length) {
+        list.innerHTML = '<p class="text-muted text-sm" style="padding:12px 0;">Aucun message pour l\'instant.</p>';
+        return;
+      }
+      list.innerHTML = messages.map(m => {
+        const isGM = (m.from || 'gm') === 'gm';
+        const time = m.timestamp ? new Date(m.timestamp).toLocaleTimeString() : '';
+        return `
+          <div style="display:flex;justify-content:${isGM ? 'flex-start' : 'flex-end'};margin-bottom:8px;">
+            <div style="max-width:80%;background:${isGM ? 'var(--surface)' : 'var(--theme,var(--gold))'};border:1px solid ${isGM ? 'var(--border)' : 'transparent'};padding:8px 12px;border-radius:12px;">
+              <div style="font-size:0.7rem;opacity:0.6;margin-bottom:3px;">${isGM ? 'MJ' : 'Vous'} · ${time}</div>
+              <div style="font-size:0.85rem;">${esc(m.text)}</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+      list.scrollTop = list.scrollHeight;
+    }
+
+    // ─── Dice ─────────────────────────────────────────
+    function rollDice() {
+      const count = Math.min(Math.max(parseInt(document.getElementById('dice-count').value) || 1, 1), 20);
+      const sides = Math.min(Math.max(parseInt(document.getElementById('dice-sides').value) || 100, 2), 1000);
+      socket.emit('player:rollDice', { count, sides });
+    }
+
+    socket.on('player:diceResult', (result) => {
+      const history = document.getElementById('dice-history');
+      if (!history) return;
+      const time = new Date(result.timestamp).toLocaleTimeString();
+      const notation = `${result.count}d${result.sides}`;
+      const isSingle = result.rolls.length === 1;
+      const entry = document.createElement('div');
+      entry.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin-bottom:10px;';
+      entry.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:${isSingle ? '0' : '10px'};">
+          <span style="font-size:0.75rem;color:var(--text-muted);">${notation} · ${time}</span>
+          ${isSingle ? `<span style="font-size:2rem;font-weight:900;color:var(--theme,var(--gold));">${result.total}</span>` : `<span style="font-size:0.85rem;color:var(--text-muted);">Total : <strong style="color:var(--theme,var(--gold));font-size:1.2rem;">${result.total}</strong></span>`}
+        </div>
+        ${!isSingle ? `<div style="display:flex;flex-wrap:wrap;gap:6px;">${result.rolls.map(r => `<span style="background:var(--card);border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-weight:700;">${r}</span>`).join('')}</div>` : ''}
+      `;
+      history.prepend(entry);
+      // Keep last 8 results
+      while (history.children.length > 8) history.removeChild(history.lastChild);
+    });
+
+    document.getElementById('dice-count').addEventListener('keydown', e => { if (e.key === 'Enter') rollDice(); });
+    document.getElementById('dice-sides').addEventListener('keydown', e => { if (e.key === 'Enter') rollDice(); });
+
+    function sendMessageToGM() {
+      const input = document.getElementById('msg-input');
+      const text = input.value.trim();
+      if (!text || !currentState) return;
+      socket.emit('player:sendMessage', { text });
+      if (!currentState.messages) currentState.messages = [];
+      currentState.messages.push({ id: Date.now(), text, from: 'player', timestamp: new Date().toISOString() });
+      renderMessages(currentState.messages);
+      input.value = '';
+    }
+
+    // ─── Player actions ───────────────────────────────
+    function flipCard(characterId) {
+      socket.emit('player:flipCard', characterId);
+    }
+
+    function selectCard(characterId) {
+      socket.emit('player:selectCard', characterId);
+    }
+
+    function swapCard(targetId) {
+      socket.emit('player:swapCard', targetId);
+    }
+
+    function validateSelection() {
+      socket.emit('player:validateSelection');
+    }
+
+    // ─── Tabs ─────────────────────────────────────────
+    document.querySelectorAll('.tab-player').forEach(btn => {
+      btn.addEventListener('click', () => {
+        activeTab = btn.dataset.ptab;
+        document.querySelectorAll('.tab-player').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-player-panel').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById(`ptab-${activeTab}`).classList.add('active');
+
+        if (activeTab === 'messages') {
+          unreadMessages = 0;
+          hideBadge('msg-badge');
+        } else if (activeTab === 'character') {
+          unreadStats = 0;
+          hideBadge('char-badge');
+        } else if (activeTab === 'skills') {
+          unreadSkills = 0;
+          hideBadge('skills-badge');
+        } else if (activeTab === 'inventory') {
+          unreadInventory = 0;
+          hideBadge('inv-badge');
+        }
+      });
+    });
+
+    // ─── Utils ───────────────────────────────────────
+    function showScreen(name) {
+      document.querySelectorAll('.screen').forEach(s => s.style.display = 'none');
+      const target = document.getElementById(`screen-${name}`);
+      if (target) target.style.display = 'block';
+    }
+
+    showScreen('join');
+
+    function updateHeaderPhase(phase) {
+      const labels = { lobby: 'Lobby', card_selection: 'Sélection', playing: 'En jeu' };
+      document.getElementById('header-phase').textContent = labels[phase] || phase;
+    }
+
+    function showJoinError(msg) {
+      const el = document.getElementById('join-error');
+      el.textContent = msg;
+      el.style.display = 'block';
+    }
+
+    function showBadge(id, count) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.textContent = count;
+      el.style.display = 'inline-flex';
+    }
+
+    function hideBadge(id) {
+      const el = document.getElementById(id);
+      if (el) el.style.display = 'none';
+    }
+
+    function showToast(msg, type = 'info') {
+      const c = document.getElementById('toast-container');
+      const t = document.createElement('div');
+      t.className = `toast ${type}`;
+      t.textContent = msg;
+      c.appendChild(t);
+      setTimeout(() => t.remove(), 3500);
+    }
+
+    function esc(s) {
+      return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+  </script>
+</body>
+</html>

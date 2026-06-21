@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Maître du Jeu — RPManager</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/cards.css">
+</head>
+<body class="game-body">
+
+  <!-- Header -->
+  <div class="session-header">
+    <div style="display:flex;align-items:center;gap:12px;">
+      <a href="/" style="color:var(--text-muted);font-size:0.8rem;text-decoration:none;">← RPManager</a>
+      <span class="session-title" id="roleplay-name">Chargement...</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+      <div>
+        <span style="font-size:0.7rem;color:var(--text-muted);display:block;">Code session</span>
+        <span class="session-code" id="session-code-display">------</span>
+      </div>
+      <span class="session-phase" id="phase-badge">Lobby</span>
+    </div>
+  </div>
+
+  <!-- Loading state -->
+  <div id="connecting-screen" style="display:flex;align-items:center;justify-content:center;min-height:calc(100vh - 56px);">
+    <div style="text-align:center;">
+      <div style="font-size:3rem;margin-bottom:16px;">🎭</div>
+      <div class="text-muted">Connexion à la session...</div>
+    </div>
+  </div>
+
+  <!-- GM layout -->
+  <div id="gm-layout" class="gm-layout" style="display:none;">
+    <!-- Main area -->
+    <div class="gm-main">
+
+      <!-- Controls section -->
+      <div class="gm-section">
+        <div class="gm-section-title">Contrôles</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button class="btn btn-gold" id="btn-distribute" onclick="distribute()">🃏 Distribuer les cartes</button>
+          <button class="btn btn-success" id="btn-start" onclick="startGame()" disabled>▶ Lancer la partie</button>
+          <button class="btn btn-danger btn-sm" onclick="resetGame()" style="margin-left:auto;">↺ Réinitialiser</button>
+        </div>
+        <div id="start-hint" class="text-sm text-muted" style="margin-top:8px;"></div>
+      </div>
+
+      <!-- Global pool -->
+      <div class="gm-section" id="pool-section" style="display:none;">
+        <div class="gm-section-title">Pool commun (<span id="pool-count">0</span> cartes)</div>
+        <div class="pool-cards" id="pool-cards"></div>
+      </div>
+
+      <!-- Players -->
+      <div class="gm-section">
+        <div class="gm-section-title">Joueurs (<span id="player-count">0</span>)</div>
+        <div id="players-list" class="players-list">
+          <p class="text-muted text-sm">En attente de joueurs... Partagez le code de session.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sidebar -->
+    <div class="gm-sidebar">
+      <div style="margin-bottom:20px;">
+        <div class="gm-section-title">Lien joueurs</div>
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;font-family:monospace;font-size:0.75rem;word-break:break-all;color:var(--text-muted);margin-bottom:8px;" id="player-link"></div>
+        <button class="btn btn-secondary btn-sm w-full" onclick="copyPlayerLink()">📋 Copier le lien</button>
+      </div>
+
+      <div style="margin-bottom:20px;">
+        <div class="gm-section-title">🎲 Lancers de dés</div>
+        <div id="dice-log"><p class="text-muted text-sm">Aucun lancer.</p></div>
+      </div>
+
+      <div>
+        <div class="gm-section-title">Scénario</div>
+        <div id="scenario-steps" class="text-sm text-muted">Aucune étape définie.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- Step Modal -->
+  <div class="modal-overlay" id="step-modal">
+    <div class="modal" style="max-width:500px;">
+      <div class="modal-header">
+        <h3 class="modal-title">
+          <span id="step-modal-num" style="color:var(--text-muted);font-weight:400;margin-right:6px;"></span>
+          <span id="step-modal-title"></span>
+        </h3>
+        <button class="modal-close" onclick="closeStepModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="step-modal-details" class="text-sm" style="line-height:1.7;white-space:pre-wrap;"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeStepModal()">Fermer</button>
+        <button class="btn btn-secondary" id="step-btn-activate" onclick="activateStep()">▶ Activer</button>
+        <button class="btn btn-success" id="step-btn-validate" onclick="validateCurrentStep()">✓ Valider</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sheet Modal -->
+  <div class="modal-overlay" id="sheet-modal">
+    <div class="modal" style="max-width:600px;">
+      <div class="modal-header">
+        <h3 class="modal-title">
+          <span id="sheet-char-icon" style="margin-right:6px;"></span><span id="sheet-char-name"></span>
+          <span style="color:var(--text-muted);font-weight:400;"> — </span><span id="sheet-player-name"></span>
+        </h3>
+        <button class="modal-close" onclick="closeSheetModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="gm-section-title" style="margin-bottom:12px;">Statistiques</div>
+        <div id="sheet-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:24px;"></div>
+
+        <div class="gm-section-title" style="margin-bottom:12px;">Inventaire</div>
+        <div id="sheet-inventory" style="margin-bottom:10px;"></div>
+        <div style="display:flex;gap:8px;">
+          <input type="text" class="form-input" id="inventory-new-item" placeholder="Nouvel objet..." style="flex:1;">
+          <button class="btn btn-secondary btn-sm" onclick="addInventoryItem()">+ Ajouter</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeSheetModal()">Annuler</button>
+        <button class="btn btn-gold" onclick="saveSheet()">💾 Sauvegarder</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chat Modal -->
+  <div class="modal-overlay" id="msg-modal">
+    <div class="modal" style="max-width:480px;display:flex;flex-direction:column;max-height:560px;">
+      <div class="modal-header">
+        <h3 class="modal-title">💬 <span id="msg-target-name"></span></h3>
+        <button class="modal-close" onclick="closeMsgModal()">✕</button>
+      </div>
+      <div id="chat-thread" style="flex:1;overflow-y:auto;padding:16px;min-height:200px;max-height:380px;"></div>
+      <div class="modal-footer" style="gap:8px;">
+        <input type="text" class="form-input" id="msg-text" placeholder="Votre message..." style="flex:1;">
+        <button class="btn btn-primary" onclick="sendMessage()">Envoyer</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const code = window.location.pathname.split('/').pop().toUpperCase();
+    const socket = io();
+    let gmState = null;
+    let roleplay = null;
+    let msgTargetId = null;
+    let msgTargetName = '';
+    let sheetTargetId = null;
+    let sheetInventory = [];
+    let activeStepIndex = null;
+    const playerUnread = new Map();
+    const diceLog = [];
+
+    // ─── Connect ─────────────────────────────────────
+    socket.emit('gm:connect', { code });
+
+    socket.on('session:info', ({ roleplay: rp }) => {
+      roleplay = rp;
+      document.getElementById('roleplay-name').textContent = rp.name;
+      document.getElementById('session-code-display').textContent = code;
+      document.title = `MJ — ${rp.name}`;
+
+      // Apply theme color
+      document.documentElement.style.setProperty('--theme', rp.themeColor);
+
+      const playerUrl = `${window.location.origin}/player/${code}`;
+      document.getElementById('player-link').textContent = playerUrl;
+
+      document.getElementById('connecting-screen').style.display = 'none';
+      document.getElementById('gm-layout').style.display = 'grid';
+
+      renderScenarioSteps(gmState || {});
+    });
+
+    socket.on('gm:state', (state) => {
+      gmState = state;
+      renderGMState(state);
+      renderScenarioSteps(state);
+      if (msgTargetId) renderChatThread();
+    });
+
+    socket.on('gm:error', (msg) => showToast(msg, 'error'));
+
+    socket.on('gm:diceResult', (result) => {
+      const notation = `${result.count}d${result.sides}`;
+      const rollsStr = result.rolls.length > 1
+        ? `[${result.rolls.join(', ')}] = ${result.total}`
+        : `${result.total}`;
+      diceLog.unshift({ name: result.playerName, notation, rolls: result.rolls, total: result.total, time: new Date(result.timestamp).toLocaleTimeString() });
+      if (diceLog.length > 15) diceLog.pop();
+      renderDiceLog();
+      showToast(`🎲 ${result.playerName} · ${notation} → ${rollsStr}`, 'info');
+    });
+
+    function renderDiceLog() {
+      const container = document.getElementById('dice-log');
+      if (!diceLog.length) { container.innerHTML = '<p class="text-muted text-sm">Aucun lancer.</p>'; return; }
+      container.innerHTML = diceLog.map(entry => `
+        <div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:0.8rem;">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;">
+            <span style="font-weight:700;color:var(--theme,var(--gold));">${esc(entry.name)}</span>
+            <span style="color:var(--text-muted);font-size:0.7rem;">${entry.time}</span>
+          </div>
+          <div style="margin-top:2px;">
+            <span style="color:var(--text-muted);">${entry.notation} → </span>
+            ${entry.rolls.length > 1
+              ? `<span style="color:var(--text-muted);">[${entry.rolls.join(', ')}]</span> = <strong>${entry.total}</strong>`
+              : `<strong style="font-size:1rem;">${entry.total}</strong>`}
+          </div>
+        </div>
+      `).join('');
+    }
+
+    socket.on('gm:playerMessage', ({ playerSocketId, playerName, message }) => {
+      const preview = message.text.length > 45 ? message.text.slice(0, 45) + '…' : message.text;
+      showToast(`💬 ${playerName} : ${preview}`, 'info');
+      if (msgTargetId === playerSocketId) {
+        renderChatThread();
+      } else {
+        playerUnread.set(playerSocketId, (playerUnread.get(playerSocketId) || 0) + 1);
+        const badge = document.querySelector(`.player-unread-badge[data-pid="${playerSocketId}"]`);
+        if (badge) { badge.textContent = playerUnread.get(playerSocketId); badge.style.display = 'inline-flex'; }
+      }
+    });
+
+    socket.on('error:session', (msg) => {
+      document.getElementById('connecting-screen').innerHTML = `
+        <div style="text-align:center;">
+          <div style="font-size:3rem;margin-bottom:16px;">❌</div>
+          <div style="color:var(--danger);">${msg}</div>
+          <a href="/" class="btn btn-secondary" style="margin-top:16px;">← Retour</a>
+        </div>`;
+    });
+
+    // ─── Render ───────────────────────────────────────
+    const phaseLabels = { lobby: 'Lobby', card_selection: 'Sélection', playing: 'En jeu' };
+
+    function renderGMState(state) {
+      // Phase badge
+      document.getElementById('phase-badge').textContent = phaseLabels[state.phase] || state.phase;
+      document.getElementById('player-count').textContent = state.players.length;
+
+      // Buttons
+      const btnDist = document.getElementById('btn-distribute');
+      const btnStart = document.getElementById('btn-start');
+      btnDist.disabled = state.phase !== 'lobby';
+      btnStart.disabled = state.phase !== 'card_selection' || !state.allSelected;
+
+      if (state.phase === 'card_selection' && !state.allSelected) {
+        const pending = state.players.filter(p => p.connected && !p.selectionValidated).map(p => p.name);
+        document.getElementById('start-hint').textContent = pending.length > 0
+          ? `En attente de : ${pending.join(', ')}`
+          : '';
+      } else {
+        document.getElementById('start-hint').textContent = '';
+      }
+
+      // Pool
+      const poolSection = document.getElementById('pool-section');
+      if (state.globalCards?.length > 0) {
+        poolSection.style.display = 'block';
+        document.getElementById('pool-count').textContent = state.globalCards.length;
+        document.getElementById('pool-cards').innerHTML = state.globalCards.map(c => `
+          <div class="pool-card" style="border-top:3px solid ${c.color}">
+            <div class="pool-card-icon">${c.icon}</div>
+            <div class="pool-card-name">${esc(c.name)}</div>
+            <div class="pool-card-title">${esc(c.title || '')}</div>
+          </div>
+        `).join('');
+      } else {
+        poolSection.style.display = 'none';
+      }
+
+      // Players
+      const playersList = document.getElementById('players-list');
+      if (state.players.length === 0) {
+        playersList.innerHTML = '<p class="text-muted text-sm">En attente de joueurs... Partagez le code de session.</p>';
+        return;
+      }
+
+      playersList.innerHTML = state.players.map(p => renderPlayerRow(p)).join('');
+    }
+
+    function renderPlayerRow(p) {
+      const online = p.connected;
+      const statusDot = `<div class="player-status-dot ${online ? 'online' : 'offline'}"></div>`;
+      const badges = [];
+
+      if (p.selectionValidated) badges.push(`<span class="badge badge-success">✓ Validé</span>`);
+      else if (p.hasSelected) badges.push(`<span class="badge badge-gold">Sélectionné</span>`);
+      else if (p.flippedCount > 0) badges.push(`<span class="badge badge-accent">${p.flippedCount} carte(s) retournée(s)</span>`);
+      else if (p.cardsDealt > 0) badges.push(`<span class="badge">Cartes reçues</span>`);
+
+      if (!online) badges.push(`<span class="badge badge-danger">Hors ligne</span>`);
+
+      let charSection = '';
+      if (p.selectedCharacter) {
+        const c = p.selectedCharacter;
+        const visibleSkillsHtml = (c.visibleSkills || []).map(s =>
+          `<span class="skill-badge skill-badge-visible" title="${esc(s.description)}">${esc(s.name)}</span>`
+        ).join('');
+
+        const hiddenSkillsHtml = (c.hiddenSkills || []).map(s => {
+          const revealed = p.revealedSkills.includes(s.id);
+          if (revealed) {
+            return `<span class="skill-badge skill-badge-revealed" title="${esc(s.description)}">✓ ${esc(s.name)}</span>`;
+          }
+          return `<button class="skill-badge skill-badge-hidden"
+            title="${esc(s.description)}"
+            onclick="revealSkill('${p.socketId}', '${s.id}')"
+            data-skill-id="${s.id}">🔒 ${esc(s.name)}</button>`;
+        }).join('');
+
+        charSection = `
+          <div class="player-character" style="border-left:3px solid ${c.color};">
+            <div class="player-char-icon">${c.icon}</div>
+            <div class="player-char-info">
+              <div class="player-char-name">${esc(c.name)}</div>
+              <div class="player-char-title">${esc(c.title || '')}</div>
+            </div>
+          </div>
+          ${c.visibleSkills?.length ? `<div class="skills-section"><div class="skills-title">Compétences visibles</div>${visibleSkillsHtml}</div>` : ''}
+          ${c.hiddenSkills?.length ? `<div class="skills-section" style="margin-top:8px;"><div class="skills-title">Compétences cachées</div>${hiddenSkillsHtml}</div>` : ''}
+          ${c.specialNote ? `<div class="text-sm" style="margin-top:8px;padding:8px;background:rgba(201,162,39,0.1);border-radius:6px;color:var(--gold-light);">📌 ${esc(c.specialNote)}</div>` : ''}
+        `;
+      }
+
+      return `
+        <div class="player-row ${!online ? 'offline' : ''}">
+          <div class="player-row-header">
+            ${statusDot}
+            <span class="player-name">${esc(p.name)}</span>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">${badges.join('')}</div>
+            <button class="btn btn-secondary btn-sm" onclick="openSheetModal('${p.socketId}')" ${!p.selectedCharacter ? 'disabled' : ''}>📋 Fiche</button>
+            <button class="btn btn-ghost btn-sm" onclick="openMsgModal('${p.socketId}', '${esc(p.name)}')" style="position:relative;">
+              💬${(playerUnread.get(p.socketId) || 0) > 0 ? `<span class="player-unread-badge" data-pid="${p.socketId}" style="position:absolute;top:-4px;right:-4px;background:var(--danger);color:#fff;border-radius:50%;font-size:0.6rem;font-weight:800;width:15px;height:15px;display:inline-flex;align-items:center;justify-content:center;">${playerUnread.get(p.socketId)}</span>` : `<span class="player-unread-badge" data-pid="${p.socketId}" style="display:none;position:absolute;top:-4px;right:-4px;background:var(--danger);color:#fff;border-radius:50%;font-size:0.6rem;font-weight:800;width:15px;height:15px;align-items:center;justify-content:center;"></span>`}
+            </button>
+          </div>
+          ${charSection}
+          ${renderMessages(p)}
+        </div>
+      `;
+    }
+
+    function renderMessages(p) {
+      if (!p.messages?.length) return '';
+      const last = p.messages.slice(-2);
+      return `
+        <div style="margin-top:10px;">
+          <div class="skills-title">Derniers messages</div>
+          ${last.map(m => {
+            const isGM = (m.from || 'gm') === 'gm';
+            return `<div style="font-size:0.75rem;color:var(--text-muted);padding:3px 0;border-top:1px solid var(--border);display:flex;gap:6px;">
+              <span style="color:${isGM ? 'var(--accent-light)' : 'var(--gold-light)'};">${isGM ? 'MJ' : p.name}</span>
+              <span>${esc(m.text)}</span>
+            </div>`;
+          }).join('')}
+        </div>
+      `;
+    }
+
+    // ─── Actions ─────────────────────────────────────
+    function distribute() {
+      socket.emit('gm:distribute');
+    }
+
+    function startGame() {
+      socket.emit('gm:startGame');
+    }
+
+    function resetGame() {
+      if (!confirm('Réinitialiser la partie ? Toutes les sélections seront perdues.')) return;
+      socket.emit('gm:reset');
+    }
+
+    function revealSkill(playerSocketId, skillId) {
+      socket.emit('gm:revealSkill', { playerSocketId, skillId });
+    }
+
+    function openMsgModal(socketId, name) {
+      msgTargetId = socketId;
+      msgTargetName = name;
+      document.getElementById('msg-target-name').textContent = name;
+      document.getElementById('msg-text').value = '';
+      playerUnread.set(socketId, 0);
+      const badge = document.querySelector(`.player-unread-badge[data-pid="${socketId}"]`);
+      if (badge) badge.style.display = 'none';
+      renderChatThread();
+      document.getElementById('msg-modal').classList.add('open');
+      setTimeout(() => document.getElementById('msg-text').focus(), 100);
+    }
+
+    function closeMsgModal() {
+      document.getElementById('msg-modal').classList.remove('open');
+      msgTargetId = null;
+      msgTargetName = '';
+    }
+
+    function renderChatThread() {
+      const player = gmState?.players.find(p => p.socketId === msgTargetId);
+      const messages = player?.messages || [];
+      const container = document.getElementById('chat-thread');
+      if (!container) return;
+
+      if (!messages.length) {
+        container.innerHTML = '<p class="text-muted text-sm" style="text-align:center;padding:20px 0;">Aucun message dans cette conversation.</p>';
+        return;
+      }
+
+      container.innerHTML = messages.map(m => {
+        const isGM = (m.from || 'gm') === 'gm';
+        const time = m.timestamp ? new Date(m.timestamp).toLocaleTimeString() : '';
+        return `
+          <div style="display:flex;justify-content:${isGM ? 'flex-end' : 'flex-start'};margin-bottom:8px;">
+            <div style="max-width:80%;background:${isGM ? 'var(--accent)' : 'var(--card)'};color:${isGM ? '#fff' : 'var(--text)'};padding:8px 12px;border-radius:12px;border:1px solid ${isGM ? 'transparent' : 'var(--border)'};">
+              <div style="font-size:0.7rem;opacity:0.7;margin-bottom:3px;">${isGM ? 'Vous (MJ)' : esc(msgTargetName)} · ${time}</div>
+              <div style="font-size:0.85rem;">${esc(m.text)}</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function sendMessage() {
+      const input = document.getElementById('msg-text');
+      const text = input.value.trim();
+      if (!text || !msgTargetId) return;
+      socket.emit('gm:message', { playerSocketId: msgTargetId, message: text });
+      input.value = '';
+      // Optimistic update
+      const player = gmState?.players.find(p => p.socketId === msgTargetId);
+      if (player) {
+        if (!player.messages) player.messages = [];
+        player.messages.push({ id: Date.now(), text, from: 'gm', timestamp: new Date().toISOString() });
+        renderChatThread();
+      }
+    }
+
+    // ─── Scenario Steps ──────────────────────────
+    function renderScenarioSteps(state) {
+      const steps = roleplay?.scenarioSteps || [];
+      const container = document.getElementById('scenario-steps');
+      if (!steps.length) {
+        container.innerHTML = '<p class="text-muted text-sm">Aucune étape définie.</p>';
+        return;
+      }
+      container.innerHTML = steps.map((step, i) => {
+        const title = typeof step === 'string' ? step : step.title;
+        const isCurrent = state.currentStepIndex === i;
+        const isValidated = state.validatedStepIndices?.includes(i);
+        const icon = isValidated ? '✓' : isCurrent ? '▶' : '○';
+        const iconColor = isValidated ? 'var(--success)' : isCurrent ? 'var(--theme,var(--gold))' : 'var(--text-muted)';
+        return `
+          <div onclick="openStepModal(${i})" style="display:flex;align-items:flex-start;gap:8px;padding:7px 8px;border-radius:var(--radius-sm);cursor:pointer;background:${isCurrent ? 'rgba(124,92,191,0.12)' : 'transparent'};margin-bottom:3px;transition:background 0.15s;" onmouseenter="this.style.background='rgba(255,255,255,0.05)'" onmouseleave="this.style.background='${isCurrent ? 'rgba(124,92,191,0.12)' : 'transparent'}'">
+            <span style="color:${iconColor};font-weight:700;font-size:0.8rem;min-width:14px;margin-top:1px;">${icon}</span>
+            <span style="font-size:0.8rem;color:${isValidated ? 'var(--text-muted)' : 'var(--text)'};text-decoration:${isValidated ? 'line-through' : 'none'};line-height:1.4;">${esc(title)}</span>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function openStepModal(index) {
+      activeStepIndex = index;
+      const steps = roleplay?.scenarioSteps || [];
+      const step = steps[index];
+      const title = typeof step === 'string' ? step : (step?.title || '');
+      const details = typeof step === 'string' ? '' : (step?.details || '');
+      const isCurrent = gmState?.currentStepIndex === index;
+      const isValidated = gmState?.validatedStepIndices?.includes(index);
+
+      document.getElementById('step-modal-num').textContent = `Étape ${index + 1}`;
+      document.getElementById('step-modal-title').textContent = title;
+      document.getElementById('step-modal-details').textContent = details || 'Aucun détail pour cette étape.';
+      if (!details) document.getElementById('step-modal-details').style.color = 'var(--text-muted)';
+      else document.getElementById('step-modal-details').style.color = '';
+
+      const btnActivate = document.getElementById('step-btn-activate');
+      const btnValidate = document.getElementById('step-btn-validate');
+      btnActivate.disabled = isCurrent;
+      btnActivate.textContent = isCurrent ? '▶ Étape active' : '▶ Activer';
+      btnValidate.disabled = isValidated;
+      btnValidate.textContent = isValidated ? '✓ Validée' : '✓ Valider';
+
+      document.getElementById('step-modal').classList.add('open');
+    }
+
+    function closeStepModal() {
+      document.getElementById('step-modal').classList.remove('open');
+      activeStepIndex = null;
+    }
+
+    function activateStep() {
+      if (activeStepIndex === null) return;
+      socket.emit('gm:setStep', { index: activeStepIndex });
+      closeStepModal();
+    }
+
+    function validateCurrentStep() {
+      if (activeStepIndex === null) return;
+      socket.emit('gm:validateStep', { index: activeStepIndex });
+      closeStepModal();
+    }
+
+    // ─── Sheet Modal ─────────────────────────────
+    const statsOrder = [
+      ['pointsDeVie','PV'], ['force','Force'], ['persuasion','Persuasion'],
+      ['perception','Perception'], ['dexterite','Dextérité'], ['intelligence','Intelligence'],
+      ['sagesse','Sagesse'], ['constitution','Constitution'], ['charisme','Charisme']
+    ];
+
+    function openSheetModal(socketId) {
+      const player = gmState?.players.find(p => p.socketId === socketId);
+      if (!player || !player.selectedCharacter) return;
+      sheetTargetId = socketId;
+      sheetInventory = [...(player.inventory || [])];
+      const c = player.selectedCharacter;
+      document.getElementById('sheet-char-icon').textContent = c.icon;
+      document.getElementById('sheet-char-name').textContent = c.name;
+      document.getElementById('sheet-player-name').textContent = player.name;
+      const stats = c.stats || {};
+      document.getElementById('sheet-stats').innerHTML = statsOrder.map(([key, label]) => `
+        <div>
+          <label style="font-size:0.75rem;color:var(--text-muted);display:block;margin-bottom:4px;">${label}</label>
+          <input type="number" class="form-input" data-stat="${key}" value="${stats[key] ?? 0}"
+                 style="text-align:center;padding:6px 8px;">
+        </div>
+      `).join('');
+      renderSheetInventory();
+      document.getElementById('inventory-new-item').value = '';
+      document.getElementById('sheet-modal').classList.add('open');
+    }
+
+    function closeSheetModal() {
+      document.getElementById('sheet-modal').classList.remove('open');
+      sheetTargetId = null;
+      sheetInventory = [];
+    }
+
+    function renderSheetInventory() {
+      const container = document.getElementById('sheet-inventory');
+      if (!sheetInventory.length) {
+        container.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:8px;">Aucun objet dans l\'inventaire.</p>';
+        return;
+      }
+      container.innerHTML = sheetInventory.map((item, i) => `
+        <div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:var(--surface);border-radius:var(--radius-sm);margin-bottom:4px;">
+          <input type="text" class="form-input" value="${esc(item)}"
+                 oninput="sheetInventory[${i}]=this.value"
+                 style="flex:1;border:none;background:transparent;padding:0;font-size:0.85rem;">
+          <button onclick="removeInventoryItem(${i})" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:1.1rem;line-height:1;padding:0 4px;">✕</button>
+        </div>
+      `).join('');
+    }
+
+    function addInventoryItem() {
+      const input = document.getElementById('inventory-new-item');
+      const name = input.value.trim();
+      if (!name) return;
+      sheetInventory.push(name);
+      renderSheetInventory();
+      input.value = '';
+      input.focus();
+    }
+
+    function removeInventoryItem(index) {
+      sheetInventory.splice(index, 1);
+      renderSheetInventory();
+    }
+
+    function saveSheet() {
+      if (!sheetTargetId) return;
+      const stats = {};
+      document.querySelectorAll('#sheet-stats input[data-stat]').forEach(input => {
+        stats[input.dataset.stat] = parseInt(input.value) || 0;
+      });
+      socket.emit('gm:saveSheet', { playerSocketId: sheetTargetId, stats, inventory: sheetInventory });
+      closeSheetModal();
+      showToast('Fiche mise à jour !', 'success');
+    }
+
+    function copyPlayerLink() {
+      const url = `${window.location.origin}/player/${code}`;
+      navigator.clipboard.writeText(url).then(() => showToast('Lien copié !', 'success'));
+    }
+
+    // ─── Utils ───────────────────────────────────────
+    function showToast(msg, type = 'info') {
+      const c = document.getElementById('toast-container');
+      const t = document.createElement('div');
+      t.className = `toast ${type}`;
+      t.textContent = msg;
+      c.appendChild(t);
+      setTimeout(() => t.remove(), 3200);
+    }
+
+    function esc(s) {
+      return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    document.getElementById('step-modal').addEventListener('click', e => {
+      if (e.target === document.getElementById('step-modal')) closeStepModal();
+    });
+
+    document.getElementById('sheet-modal').addEventListener('click', e => {
+      if (e.target === document.getElementById('sheet-modal')) closeSheetModal();
+    });
+
+    document.getElementById('inventory-new-item').addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); addInventoryItem(); }
+    });
+
+    document.getElementById('msg-modal').addEventListener('click', e => {
+      if (e.target === document.getElementById('msg-modal')) closeMsgModal();
+    });
+
+    document.getElementById('msg-text').addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); sendMessage(); }
+    });
+  </script>
+</body>
+</html>

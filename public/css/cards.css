@@ -1,0 +1,595 @@
+/* ============================================
+   cards.css — Styles des cartes de jeu
+   ============================================ */
+
+/* ─── Game Layout ────────────────────────────── */
+.game-body {
+  background: var(--bg);
+  min-height: 100vh;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+}
+
+/* Theme color injected via JS: --theme: #color */
+.accent-border { border-color: var(--theme, var(--gold)) !important; }
+.accent-text { color: var(--theme, var(--gold)); }
+.accent-bg { background: var(--theme, var(--gold)); }
+
+/* ─── Session Header ─────────────────────────── */
+.session-header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.session-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--theme, var(--gold));
+}
+
+.session-code {
+  font-family: monospace;
+  font-size: 1.1rem;
+  font-weight: 800;
+  padding: 4px 12px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  letter-spacing: 0.15em;
+  color: var(--theme, var(--gold));
+}
+
+.session-phase {
+  font-size: 0.8rem;
+  padding: 4px 12px;
+  border-radius: 100px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* ─── Card Flip ──────────────────────────────── */
+.card-scene {
+  perspective: 1000px;
+}
+
+.card-flip {
+  width: 160px;
+  height: 240px;
+  position: relative;
+  transform-style: preserve-3d;
+  transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+}
+
+.card-flip.flipped { transform: rotateY(180deg); }
+.card-flip.selected { cursor: default; }
+
+.card-front,
+.card-back {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  border: 2px solid var(--border);
+  overflow: hidden;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.card-back {
+  background: linear-gradient(135deg, #1a1a38 0%, #2a1a4a 50%, #1a2a38 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.card-back-pattern {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 3rem;
+  opacity: 0.3;
+  background: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 10px,
+    rgba(255,255,255,0.02) 10px,
+    rgba(255,255,255,0.02) 20px
+  );
+}
+
+.card-back-icon {
+  position: absolute;
+  font-size: 3.5rem;
+  opacity: 0.6;
+  filter: drop-shadow(0 0 10px var(--theme, var(--gold)));
+}
+
+.card-front {
+  background: var(--card);
+  transform: rotateY(180deg);
+  display: flex;
+  flex-direction: column;
+}
+
+.card-character-color {
+  height: 4px;
+  flex-shrink: 0;
+}
+
+.card-icon {
+  padding: 16px 12px 8px;
+  text-align: center;
+  font-size: 2.5rem;
+  line-height: 1;
+}
+
+.card-name {
+  text-align: center;
+  font-size: 0.85rem;
+  font-weight: 800;
+  padding: 0 8px;
+  color: var(--text);
+  line-height: 1.2;
+}
+
+.card-title {
+  text-align: center;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  padding: 2px 8px 8px;
+  font-style: italic;
+}
+
+.card-skills {
+  flex: 1;
+  padding: 0 8px 8px;
+  overflow: hidden;
+}
+
+.card-skill {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  padding: 3px 6px;
+  background: var(--surface);
+  border-radius: 4px;
+  margin-bottom: 3px;
+  line-height: 1.3;
+}
+
+.card-skill-name { font-weight: 700; color: var(--theme, var(--gold)); }
+
+/* Selected card glow */
+.card-flip.selected .card-front {
+  border-color: var(--theme, var(--gold));
+  box-shadow: 0 0 20px rgba(255, 200, 0, 0.25), inset 0 0 20px rgba(255, 200, 0, 0.05);
+}
+
+/* ─── Cards Grid ─────────────────────────────── */
+.cards-area {
+  padding: 24px;
+}
+
+.cards-area-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cards-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+/* ─── GM Player List ─────────────────────────── */
+.players-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.player-row {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  transition: all var(--transition);
+}
+
+.player-row.offline { opacity: 0.5; }
+
+.player-row-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.player-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.player-status-dot.online { background: var(--success); box-shadow: 0 0 6px var(--success); }
+.player-status-dot.offline { background: var(--text-muted); }
+
+.player-name { font-weight: 700; flex: 1; }
+
+.player-character {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  margin-bottom: 12px;
+}
+
+.player-char-icon { font-size: 1.5rem; }
+.player-char-info { flex: 1; }
+.player-char-name { font-size: 0.9rem; font-weight: 700; }
+.player-char-title { font-size: 0.75rem; color: var(--text-muted); }
+
+.skills-section { margin-top: 10px; }
+.skills-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.skill-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 100px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  margin: 2px;
+  cursor: pointer;
+  border: none;
+  transition: all var(--transition);
+}
+
+.skill-badge-visible {
+  background: rgba(41, 128, 185, 0.2);
+  color: #5dade2;
+  cursor: default;
+}
+
+.skill-badge-hidden {
+  background: rgba(243, 156, 18, 0.1);
+  color: var(--text-muted);
+  border: 1px dashed var(--border);
+}
+
+.skill-badge-hidden:hover {
+  background: rgba(243, 156, 18, 0.2);
+  color: #f39c12;
+  border-color: #f39c12;
+}
+
+.skill-badge-revealed {
+  background: rgba(39, 174, 96, 0.2);
+  color: #2ecc71;
+  cursor: default;
+}
+
+/* ─── Player Game Screen ─────────────────────── */
+.game-content {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.screen { display: none; }
+.screen.active { display: block; }
+
+/* Join screen */
+.join-screen {
+  min-height: calc(100vh - 60px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.join-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 40px;
+  width: 100%;
+  max-width: 420px;
+  text-align: center;
+}
+
+.join-card-icon { font-size: 3.5rem; margin-bottom: 16px; }
+.join-card h2 { margin-bottom: 8px; }
+.join-card p { color: var(--text-muted); margin-bottom: 24px; font-size: 0.9rem; }
+.join-code-display {
+  font-family: monospace;
+  font-size: 1.4rem;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+  color: var(--theme, var(--gold));
+  padding: 8px 16px;
+  background: rgba(255,255,255,0.05);
+  border-radius: var(--radius-sm);
+  margin-bottom: 24px;
+}
+
+/* Lobby screen */
+.lobby-screen {
+  text-align: center;
+  padding: 60px 24px;
+}
+.waiting-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin-top: 24px;
+}
+.pulse-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--theme, var(--gold));
+  animation: pulse 1.5s infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.7); }
+}
+
+/* Character sheet */
+.character-sheet {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.character-sheet-header {
+  padding: 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.char-big-icon { font-size: 3rem; }
+.char-header-info { flex: 1; }
+.char-big-name { font-size: 1.4rem; font-weight: 800; }
+.char-big-title { color: var(--text-muted); font-size: 0.9rem; }
+
+.character-sheet-body { padding: 24px; }
+
+.stats-display {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.stat-display {
+  text-align: center;
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  padding: 12px 8px;
+  border: 1px solid var(--border);
+}
+
+.stat-value {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--theme, var(--gold));
+  display: block;
+}
+
+.stat-name {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+/* Skills in player sheet */
+.skills-list { display: flex; flex-direction: column; gap: 10px; }
+
+.skill-entry {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  transition: all var(--transition);
+}
+
+.skill-entry.hidden-locked {
+  opacity: 0.5;
+  border-style: dashed;
+}
+
+.skill-entry.hidden-revealed {
+  border-color: var(--success);
+  background: rgba(39, 174, 96, 0.05);
+}
+
+.skill-entry-name {
+  font-size: 0.85rem;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.skill-entry-desc {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.skill-entry-tag {
+  display: inline-flex;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 100px;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.tag-visible { background: rgba(41, 128, 185, 0.2); color: #5dade2; }
+.tag-hidden { background: rgba(243, 156, 18, 0.2); color: #f39c12; }
+
+/* Messages */
+.messages-list { display: flex; flex-direction: column; gap: 8px; }
+.message-item {
+  background: var(--surface);
+  border: 1px solid var(--theme, var(--gold));
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  border-left-width: 3px;
+  animation: messageIn 0.3s ease;
+}
+@keyframes messageIn {
+  from { transform: translateX(-10px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.message-text { font-size: 0.9rem; }
+.message-time { font-size: 0.7rem; color: var(--text-muted); margin-top: 4px; }
+
+/* GM message input */
+.gm-msg-form {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.gm-msg-input {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 0.85rem;
+  padding: 8px 12px;
+  font-family: inherit;
+}
+.gm-msg-input:focus { outline: none; border-color: var(--accent); }
+
+/* ─── Pool cards (smaller) ───────────────────── */
+.pool-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.pool-card {
+  width: 110px;
+  height: 160px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition);
+  padding: 8px;
+  text-align: center;
+}
+
+.pool-card:hover {
+  border-color: var(--theme, var(--gold));
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+}
+
+.pool-card-icon { font-size: 1.8rem; margin-bottom: 6px; }
+.pool-card-name { font-size: 0.7rem; font-weight: 700; color: var(--text); line-height: 1.2; margin-bottom: 2px; }
+.pool-card-title { font-size: 0.6rem; color: var(--text-muted); }
+
+/* ─── Action bar ─────────────────────────────── */
+.action-bar {
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding: 16px 24px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+/* ─── GM Panel ───────────────────────────────── */
+.gm-layout {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 0;
+  min-height: calc(100vh - 56px);
+}
+
+.gm-main {
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+}
+
+.gm-sidebar {
+  overflow-y: auto;
+  padding: 20px;
+}
+
+.gm-section {
+  padding: 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.gm-section-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ─── Responsive Game ────────────────────────── */
+@media (max-width: 900px) {
+  .gm-layout { grid-template-columns: 1fr; }
+  .gm-sidebar { border-top: 1px solid var(--border); }
+  .card-flip { width: 130px; height: 200px; }
+}
+
+@media (max-width: 600px) {
+  .stats-display { grid-template-columns: repeat(3, 1fr); }
+  .card-flip { width: 120px; height: 180px; }
+  .card-icon { font-size: 2rem; }
+}
