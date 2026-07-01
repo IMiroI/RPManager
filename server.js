@@ -1,33 +1,51 @@
 // ============================================
 // server.js — RPManager — Serveur principal
 // ============================================
+require('dotenv').config();
 
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
 const os = require('os');
+const { randomBytes } = require('crypto');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const { GameEngine } = require('./gameEngine');
 const rp = require('./roleplaysManager');
 
 const app = express();
+
+const CORS_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:3003').split(',');
+
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: '*' } });
+const io = new Server(server, { cors: { origin: CORS_ORIGINS } });
 
 const PORT = process.env.PORT || 3001;
 
-// Active sessions: code -> { engine, roleplay }
+// Active sessions: code -> { engine, roleplay, gmSecret, gmSocketId }
 const sessions = new Map();
 
 function generateCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let code = '';
-  for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
-  return sessions.has(code) ? generateCode() : code;
+  let code;
+  do {
+    const buf = randomBytes(6);
+    code = Array.from(buf).map(b => chars[b % chars.length]).join('');
+  } while (sessions.has(code));
+  return code;
 }
 
 // ─── Middleware ──────────────────────────────────────
-app.use(express.json());
+app.use(helmet({ contentSecurityPolicy: false }));
+app.use(rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Trop de requêtes' },
+}));
+app.use(express.json({ limit: '10kb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ─── API Roleplays ───────────────────────────────────
@@ -44,45 +62,62 @@ app.post('/api/roleplays', (req, res) => {
     const data = rp.createRoleplay(req.body);
     res.status(201).json(data);
   } catch (e) {
-    res.status(400).json({ error: e.message });
+    console.error('Erreur:', e);
+    res.status(400).json({ error: 'Données invalides' });
   }
 });
 
 app.put('/api/roleplays/:id', (req, res) => {
-  const data = rp.updateRoleplay(req.params.id, req.body);
-  if (!data) return res.status(404).json({ error: 'Introuvable' });
-  res.json(data);
+  try {
+    const data = rp.updateRoleplay(req.params.id, req.body);
+    if (!data) return res.status(404).json({ error: 'Introuvable' });
+    res.json(data);
+  } catch (e) {
+    console.error('Erreur:', e);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
 });
 
 app.delete('/api/roleplays/:id', (req, res) => {
-  // Refuse if active sessions exist for this roleplay
   for (const [, session] of sessions) {
     if (session.roleplay.id === req.params.id) {
       return res.status(409).json({ error: 'Une session est en cours pour ce roleplay.' });
     }
   }
-  const ok = rp.deleteRoleplay(req.params.id);
-  if (!ok) return res.status(404).json({ error: 'Introuvable' });
-  res.json({ success: true });
+  try {
+    const ok = rp.deleteRoleplay(req.params.id);
+    if (!ok) return res.status(404).json({ error: 'Introuvable' });
+    res.json({ success: true });
+  } catch (e) {
+    console.error('Erreur:', e);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
 });
 
 // ─── API Sessions ────────────────────────────────────
 app.post('/api/sessions', (req, res) => {
-  const roleplay = req.body.roleplay;
-  if (!roleplay || !roleplay.name) {
-    return res.status(400).json({ error: 'Données du roleplay invalides.' });
-  }
-  if (!roleplay.characters?.length) {
-    return res.status(400).json({ error: 'Ce roleplay n\'a aucun personnage.' });
-  }
+  try {
+    const roleplay = req.body.roleplay;
+    if (!roleplay || !roleplay.name) {
+      return res.status(400).json({ error: 'Données du roleplay invalides.' });
+    }
+    if (!roleplay.characters?.length) {
+      return res.status(400).json({ error: 'Ce roleplay n\'a aucun personnage.' });
+    }
 
-  const code = generateCode();
-  sessions.set(code, { engine: new GameEngine(roleplay), roleplay });
+    const code = generateCode();
+    const gmSecret = randomBytes(16).toString('hex');
+    sessions.set(code, { engine: new GameEngine(roleplay), roleplay, gmSecret, gmSocketId: null });
 
-  res.json({
-    code,
-    roleplay: { id: roleplay.id, name: roleplay.name, themeColor: roleplay.themeColor }
-  });
+    res.json({
+      code,
+      gmSecret,
+      roleplay: { id: roleplay.id, name: roleplay.name, themeColor: roleplay.themeColor }
+    });
+  } catch (e) {
+    console.error('Erreur:', e);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
 });
 
 app.get('/api/sessions/:code', (req, res) => {
@@ -97,10 +132,15 @@ app.get('/api/sessions/:code', (req, res) => {
 });
 
 app.delete('/api/sessions/:code', (req, res) => {
-  const code = req.params.code.toUpperCase();
-  if (!sessions.has(code)) return res.status(404).json({ error: 'Session introuvable' });
-  sessions.delete(code);
-  res.json({ success: true });
+  try {
+    const code = req.params.code.toUpperCase();
+    if (!sessions.has(code)) return res.status(404).json({ error: 'Session introuvable' });
+    sessions.delete(code);
+    res.json({ success: true });
+  } catch (e) {
+    console.error('Erreur:', e);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
 });
 
 // ─── Pages ───────────────────────────────────────────
@@ -123,13 +163,20 @@ io.on('connection', (socket) => {
     }
   }
 
+  function isGM(code) {
+    const session = sessions.get(code);
+    return session && session.gmSocketId === socket.id;
+  }
+
   // ─── GM Events ──────────────────────────────────────
-  socket.on('gm:connect', ({ code }) => {
+  socket.on('gm:connect', ({ code, gmSecret }) => {
     const session = sessions.get(code);
     if (!session) { socket.emit('error:session', 'Session introuvable'); return; }
+    if (session.gmSecret !== gmSecret) { socket.emit('error:session', 'Accès GM refusé'); return; }
 
     sessionCode = code;
     playerRole = 'gm';
+    session.gmSocketId = socket.id;
     session.engine.setGM(socket.id);
     socket.join(`gm:${code}`);
     socket.emit('session:info', { roleplay: session.roleplay });
@@ -138,7 +185,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('gm:distribute', () => {
-    if (!sessionCode) return;
+    if (!sessionCode || !isGM(sessionCode)) return;
     const session = sessions.get(sessionCode);
     if (!session) return;
 
@@ -153,7 +200,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('gm:startGame', () => {
-    if (!sessionCode) return;
+    if (!sessionCode || !isGM(sessionCode)) return;
     const session = sessions.get(sessionCode);
     if (!session) return;
 
@@ -171,7 +218,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('gm:revealSkill', ({ playerSocketId, skillId }) => {
-    if (!sessionCode) return;
+    if (!sessionCode || !isGM(sessionCode)) return;
     const session = sessions.get(sessionCode);
     if (!session) return;
 
@@ -186,11 +233,14 @@ io.on('connection', (socket) => {
   });
 
   socket.on('gm:message', ({ playerSocketId, message }) => {
-    if (!sessionCode) return;
+    if (!sessionCode || !isGM(sessionCode)) return;
     const session = sessions.get(sessionCode);
     if (!session) return;
 
-    const result = session.engine.sendPrivateMessage(playerSocketId, message);
+    if (typeof message !== 'string' || message.trim().length === 0) return;
+    const safeMessage = message.trim().slice(0, 1000);
+
+    const result = session.engine.sendPrivateMessage(playerSocketId, safeMessage);
     if (result.success) {
       io.to(playerSocketId).emit('player:privateMessage', result.message);
       socket.emit('gm:state', session.engine.getGMState());
@@ -219,7 +269,10 @@ io.on('connection', (socket) => {
     const session = sessions.get(sessionCode);
     if (!session) return;
 
-    const result = session.engine.receivePlayerMessage(socket.id, text);
+    if (typeof text !== 'string' || text.trim().length === 0) return;
+    const safeMessage = text.trim().slice(0, 1000);
+
+    const result = session.engine.receivePlayerMessage(socket.id, safeMessage);
     if (result.success && session.engine.gmSocketId) {
       io.to(session.engine.gmSocketId).emit('gm:playerMessage', {
         playerSocketId: socket.id,
@@ -231,7 +284,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('gm:reset', () => {
-    if (!sessionCode) return;
+    if (!sessionCode || !isGM(sessionCode)) return;
     const session = sessions.get(sessionCode);
     if (!session) return;
 
@@ -245,7 +298,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('gm:requestState', () => {
-    if (!sessionCode) return;
+    if (!sessionCode || !isGM(sessionCode)) return;
     const session = sessions.get(sessionCode);
     if (!session) return;
     socket.emit('gm:state', session.engine.getGMState());
@@ -257,28 +310,30 @@ io.on('connection', (socket) => {
     const session = sessions.get(upperCode);
     if (!session) { socket.emit('player:error', 'Session introuvable. Vérifie le code.'); return; }
 
-    const reconnect = session.engine.reconnectPlayer(socket.id, name);
+    const safeName = (typeof name === 'string') ? name.trim().slice(0, 50) : 'Joueur';
+
+    const reconnect = session.engine.reconnectPlayer(socket.id, safeName);
     if (reconnect.success) {
       sessionCode = upperCode;
       playerRole = 'player';
       socket.join(upperCode);
       socket.emit('session:info', { roleplay: session.roleplay });
-      socket.emit('player:joined', { name });
+      socket.emit('player:joined', { name: safeName });
       socket.emit('player:state', session.engine.getPlayerState(socket.id));
       io.to(`gm:${upperCode}`).emit('gm:state', session.engine.getGMState());
       return;
     }
 
-    const result = session.engine.addPlayer(socket.id, name);
+    const result = session.engine.addPlayer(socket.id, safeName);
     if (result.success) {
       sessionCode = upperCode;
       playerRole = 'player';
       socket.join(upperCode);
       socket.emit('session:info', { roleplay: session.roleplay });
-      socket.emit('player:joined', { name });
+      socket.emit('player:joined', { name: safeName });
       socket.emit('player:state', session.engine.getPlayerState(socket.id));
       io.to(`gm:${upperCode}`).emit('gm:state', session.engine.getGMState());
-      console.log(`[Joueur] ${name} rejoint — ${upperCode}`);
+      console.log(`[Joueur] ${safeName} rejoint — ${upperCode}`);
     } else {
       socket.emit('player:error', result.error);
     }
@@ -344,7 +399,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('gm:setStep', ({ index }) => {
-    if (!sessionCode) return;
+    if (!sessionCode || !isGM(sessionCode)) return;
     const session = sessions.get(sessionCode);
     if (!session) return;
     session.engine.setCurrentStep(index);
@@ -352,7 +407,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('gm:validateStep', ({ index }) => {
-    if (!sessionCode) return;
+    if (!sessionCode || !isGM(sessionCode)) return;
     const session = sessions.get(sessionCode);
     if (!session) return;
     session.engine.validateStep(index);
@@ -360,7 +415,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('gm:saveSheet', ({ playerSocketId, stats, inventory }) => {
-    if (!sessionCode) return;
+    if (!sessionCode || !isGM(sessionCode)) return;
     const session = sessions.get(sessionCode);
     if (!session) return;
 
@@ -368,11 +423,9 @@ io.on('connection', (socket) => {
     if (!player) { socket.emit('gm:error', 'Joueur introuvable.'); return; }
     const character = session.engine.getCharacterById(player.selectedCharacter);
 
-    // Compare stats avec les valeurs actuelles
     const currentStats = character?.stats || {};
     const statsChanged = character && Object.keys(stats).some(k => stats[k] !== (currentStats[k] ?? 0));
 
-    // Compare inventaire avec la valeur actuelle
     const inventoryChanged = JSON.stringify(inventory) !== JSON.stringify(player.inventory);
 
     if (statsChanged) character.stats = { ...currentStats, ...stats };

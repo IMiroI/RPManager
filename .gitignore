@@ -1,24 +1,32 @@
-# Dépendances
+# ── Dépendances ───────────────────────────────────────────────────────────────
 node_modules/
 
-# Variables d'environnement
+# ── Variables d'environnement ─────────────────────────────────────────────────
+# Garder .env.example (intentionnellement versionné)
 .env
 .env.local
 .env.*.local
 
-# Données utilisateur (stockées en localStorage côté client)
+# ── Données runtime ───────────────────────────────────────────────────────────
+# Fichiers de jeu de rôle créés par l'API (données utilisateur, pas du code)
 data/
 
-# Logs
+# ── Logs ──────────────────────────────────────────────────────────────────────
+logs/
 *.log
 npm-debug.log*
-logs/
 
-# OS
+# ── Tests & coverage ──────────────────────────────────────────────────────────
+coverage/
+*.lcov
+
+# ── OS ────────────────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
 
-# Éditeurs
+# ── IDE ───────────────────────────────────────────────────────────────────────
 .vscode/
 .idea/
 *.swp

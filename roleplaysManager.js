@@ -4,6 +4,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { randomBytes } = require('crypto');
 
 const DATA_DIR = path.join(__dirname, 'data', 'roleplays');
 
@@ -13,13 +14,27 @@ function ensureDataDir() {
   }
 }
 
-function slugify(name) {
-  return name
+function isValidId(id) {
+  return typeof id === 'string' && /^[a-zA-Z0-9_-]+$/.test(id);
+}
+
+function safeFilePath(id) {
+  if (!isValidId(id)) return null;
+  const filePath = path.join(DATA_DIR, `${id}.json`);
+  const resolved = path.resolve(filePath);
+  const base = path.resolve(DATA_DIR);
+  if (!resolved.startsWith(base + path.sep) && resolved !== base) return null;
+  return filePath;
+}
+
+function generateId(name) {
+  const slug = (name || '')
     .toLowerCase()
     .normalize('NFD').replace(/[̀-ͯ]/g, '')
     .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    || `roleplay-${Date.now()}`;
+    .replace(/^-|-$/g, '');
+  const hash = randomBytes(4).toString('hex');
+  return slug ? `${slug}-${hash}` : `roleplay-${hash}`;
 }
 
 function getAllRoleplays() {
@@ -46,14 +61,15 @@ function getAllRoleplays() {
 
 function getRoleplay(id) {
   ensureDataDir();
-  const filePath = path.join(DATA_DIR, `${id}.json`);
+  const filePath = safeFilePath(id);
+  if (!filePath) return null;
   if (!fs.existsSync(filePath)) return null;
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
 
 function createRoleplay(data) {
   ensureDataDir();
-  const id = slugify(data.name || 'nouveau-roleplay');
+  const id = generateId(data.name || 'nouveau-roleplay');
   const now = new Date().toISOString();
 
   const roleplay = {
@@ -67,14 +83,16 @@ function createRoleplay(data) {
     updatedAt: now
   };
 
-  const filePath = path.join(DATA_DIR, `${id}.json`);
+  const filePath = safeFilePath(id);
+  if (!filePath) throw new Error('ID généré invalide');
   fs.writeFileSync(filePath, JSON.stringify(roleplay, null, 2), 'utf8');
   return roleplay;
 }
 
 function updateRoleplay(id, data) {
   ensureDataDir();
-  const filePath = path.join(DATA_DIR, `${id}.json`);
+  const filePath = safeFilePath(id);
+  if (!filePath) return null;
   if (!fs.existsSync(filePath)) return null;
 
   const existing = JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -91,7 +109,8 @@ function updateRoleplay(id, data) {
 
 function deleteRoleplay(id) {
   ensureDataDir();
-  const filePath = path.join(DATA_DIR, `${id}.json`);
+  const filePath = safeFilePath(id);
+  if (!filePath) return false;
   if (!fs.existsSync(filePath)) return false;
   fs.unlinkSync(filePath);
   return true;
