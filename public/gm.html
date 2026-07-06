@@ -153,6 +153,7 @@
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const code = window.location.pathname.split('/').pop().toUpperCase();
+    const gmSecret = window.location.hash.slice(1);
     const socket = io();
     let gmState = null;
     let roleplay = null;
@@ -165,7 +166,7 @@
     const diceLog = [];
 
     // ─── Connect ─────────────────────────────────────
-    socket.emit('gm:connect', { code });
+    socket.emit('gm:connect', { code, gmSecret });
 
     socket.on('session:info', ({ roleplay: rp }) => {
       roleplay = rp;

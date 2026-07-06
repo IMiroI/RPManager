@@ -1,0 +1,141 @@
+/* ============================================
+   aventure.css — Styles spécifiques aux pages Aventure
+   (dropzone d'upload, grille de médias)
+   ============================================ */
+
+.dropzone {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 32px;
+  text-align: center;
+  cursor: pointer;
+  transition: all var(--transition);
+  background: var(--surface);
+}
+.dropzone:hover,
+.dropzone.dragover {
+  border-color: var(--accent);
+  background: var(--card-hover);
+}
+.dropzone-icon {
+  font-size: 2rem;
+  margin-bottom: 8px;
+}
+.dropzone-hint {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  margin-top: 4px;
+}
+
+.media-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 16px;
+  margin-top: 20px;
+}
+.media-tile {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  transition: all var(--transition);
+}
+.media-tile:hover {
+  border-color: var(--accent);
+}
+.media-tile-thumb {
+  width: 100%;
+  height: 100px;
+  object-fit: cover;
+  display: block;
+  background: var(--surface);
+}
+.media-tile-icon {
+  width: 100%;
+  height: 100px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2.2rem;
+  background: var(--surface);
+}
+.media-tile-name {
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 8px 10px 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.media-tile-meta {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  padding: 0 10px 8px;
+}
+.media-tile-actions {
+  display: flex;
+  border-top: 1px solid var(--border);
+}
+.media-tile-actions .btn {
+  flex: 1;
+  border-radius: 0;
+  justify-content: center;
+}
+
+/* ─── Plateau de carte / tokens (façon Roll20) ──────────── */
+.token-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.token {
+  position: absolute;
+  width: 48px;
+  height: 48px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  border: 2px solid var(--gold);
+  overflow: hidden;
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.6rem;
+  cursor: grab;
+  pointer-events: auto;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+  user-select: none;
+  touch-action: none;
+  transition: box-shadow var(--transition);
+}
+.token:hover { box-shadow: 0 0 0 3px var(--accent-light); }
+.token.dragging { cursor: grabbing; z-index: 20; opacity: 0.85; transition: none; }
+.token img { width: 100%; height: 100%; object-fit: cover; }
+.token-label {
+  position: absolute;
+  bottom: -18px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.65rem;
+  background: rgba(0,0,0,0.65);
+  color: #fff;
+  padding: 1px 6px;
+  border-radius: 100px;
+  white-space: nowrap;
+}
+
+/* ─── Aperçu/upload de token (joueur ou PNJ) ────────────── */
+.token-upload-preview {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 2px solid var(--gold);
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  cursor: pointer;
+  overflow: hidden;
+}
+.token-upload-preview img { width: 100%; height: 100%; object-fit: cover; }

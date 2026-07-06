@@ -74,15 +74,48 @@
       font-size: 0.85rem;
       color: var(--text-muted);
     }
+    .rp-type-choice {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      text-align: left;
+      width: 100%;
+      padding: 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all var(--transition);
+      color: var(--text);
+    }
+    .rp-type-choice:hover {
+      border-color: var(--accent);
+      background: var(--card-hover);
+    }
+    .rp-type-choice-icon { font-size: 1.6rem; }
+    .rp-type-choice-title {
+      display: block;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    .rp-type-choice-desc {
+      display: block;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
   </style>
 </head>
 <body>
   <header class="page-header">
-    <div class="container">
+    <div class="container" style="display:flex;align-items:center;justify-content:space-between;">
       <a href="/" class="logo">
         <div class="logo-icon">🎭</div>
         <span class="logo-text">RPManager</span>
       </a>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <span id="user-label" class="text-muted text-sm"></span>
+        <button class="btn btn-ghost btn-sm" id="logout-btn">Déconnexion</button>
+      </div>
     </div>
   </header>
 
@@ -108,9 +141,9 @@
           <div class="section-title" id="roleplay-count-label">Chargement...</div>
           <div class="section-subtitle">Choisissez une histoire pour jouer ou créez-en une nouvelle</div>
         </div>
-        <a href="/editor" class="btn btn-primary">
+        <button class="btn btn-primary" onclick="openCreateModal()">
           <span>+</span> Créer un Roleplay
-        </a>
+        </button>
       </div>
 
       <div class="roleplay-grid" id="roleplay-grid"></div>
@@ -136,6 +169,34 @@
     </div>
   </div>
 
+  <!-- Create roleplay modal -->
+  <div class="modal-overlay" id="create-modal">
+    <div class="modal" style="max-width:480px;">
+      <div class="modal-header">
+        <h3 class="modal-title">Quel type de Roleplay ?</h3>
+        <button class="modal-close" onclick="closeCreateModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <button class="rp-type-choice" onclick="location.href='/editor?type=oneshot'">
+            <span class="rp-type-choice-icon">🎬</span>
+            <span>
+              <span class="rp-type-choice-title">OneShot</span>
+              <span class="rp-type-choice-desc">Une aventure autonome, jouée en une seule session (comme "La Traque de Nazareth").</span>
+            </span>
+          </button>
+          <button class="rp-type-choice" onclick="location.href='/aventure-editor?type=aventure'">
+            <span class="rp-type-choice-icon">📖</span>
+            <span>
+              <span class="rp-type-choice-title">Aventure</span>
+              <span class="rp-type-choice-desc">Une histoire à suivre sur plusieurs sessions.</span>
+            </span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Start session modal -->
   <div class="modal-overlay" id="session-modal">
     <div class="modal" style="max-width:440px;">
@@ -150,32 +211,28 @@
   </div>
 
   <script>
-    const LS_KEY = 'rpmanager_roleplays';
     let pendingDeleteId = null;
     const activeSessions = new Map();
+    let roleplaysCache = [];
 
-    // ─── localStorage helpers ────────────────────────
-    function lsGet() {
-      try { return JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch { return {}; }
+    // ─── Auth ────────────────────────────────────────
+    async function checkAuth() {
+      const res = await fetch('/api/auth/me');
+      if (!res.ok) { window.location.href = '/login'; return null; }
+      return res.json();
     }
 
-    function getAllRoleplays() {
-      return Object.values(lsGet()).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
-    }
-
-    function getRoleplay(id) {
-      return lsGet()[id] || null;
-    }
-
-    function lsDelete(id) {
-      const data = lsGet();
-      delete data[id];
-      localStorage.setItem(LS_KEY, JSON.stringify(data));
-    }
+    document.getElementById('logout-btn').addEventListener('click', async () => {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      window.location.href = '/login';
+    });
 
     // ─── Render ──────────────────────────────────────
-    function loadRoleplays() {
-      renderRoleplays(getAllRoleplays());
+    async function loadRoleplays() {
+      const res = await fetch('/api/roleplays');
+      if (res.status === 401) { window.location.href = '/login'; return; }
+      roleplaysCache = await res.json();
+      renderRoleplays(roleplaysCache);
     }
 
     function renderRoleplays(list) {
@@ -189,7 +246,7 @@
             <div class="empty-state-icon">🎲</div>
             <div class="empty-state-title">Aucune histoire pour l'instant</div>
             <p class="empty-state-desc">Créez votre premier roleplay pour commencer à jouer.</p>
-            <a href="/editor" class="btn btn-primary btn-lg">+ Créer mon premier Roleplay</a>
+            <button class="btn btn-primary btn-lg" onclick="openCreateModal()">+ Créer mon premier Roleplay</button>
           </div>`;
         return;
       }
@@ -202,23 +259,42 @@
             <div class="roleplay-card-name">${escHtml(rp.name)}</div>
             <div class="roleplay-card-desc">${escHtml(rp.description || '')}</div>
             <div class="roleplay-card-meta">
+              <span class="meta-badge">${rp.type === 'aventure' ? '📖 Aventure' : '🎬 OneShot'}</span>
+              ${rp.role === 'player' ? '<span class="meta-badge">🎭 Joueur</span>' : ''}
               <span class="meta-badge">👥 ${rp.maxPlayers} joueurs max</span>
-              <span class="meta-badge">🧙 ${rp.characters?.length || 0} personnages</span>
+              <span class="meta-badge">🧙 ${rp.characterCount ?? 0} personnages</span>
             </div>
           </div>
           <div class="roleplay-card-actions">
-            <button class="btn btn-gold btn-sm" onclick="startSession('${rp.id}')">▶ Jouer</button>
-            <a href="/editor/${rp.id}" class="btn btn-secondary btn-sm">✏ Modifier</a>
-            <button class="btn btn-danger btn-sm" onclick="confirmDelete('${rp.id}', '${escAttr(rp.name)}')">🗑</button>
+            ${rp.role === 'player' ? `
+              <a href="/adventure/${rp.inviteCode}" class="btn btn-gold btn-sm">▶ Continuer l'aventure</a>
+            ` : rp.type === 'aventure' ? `
+              <a href="/adventure-gm/${rp.id}" class="btn btn-gold btn-sm">🎬 Lancer la séance</a>
+              <button class="btn btn-secondary btn-sm" onclick="copyAdventureLink('${rp.inviteCode}')">📋 Lien joueur</button>
+              <a href="/aventure-editor/${rp.id}" class="btn btn-secondary btn-sm">✏ Modifier</a>
+            ` : `
+              <button class="btn btn-gold btn-sm" onclick="startSession('${rp.id}')">▶ Jouer</button>
+              <a href="/editor/${rp.id}" class="btn btn-secondary btn-sm">✏ Modifier</a>
+            `}
+            ${rp.role !== 'player' ? `<button class="btn btn-danger btn-sm" onclick="confirmDelete('${rp.id}', '${escAttr(rp.name)}')">🗑</button>` : ''}
           </div>
         </div>
       `).join('');
     }
 
+    // ─── Create ──────────────────────────────────────
+    function openCreateModal() {
+      document.getElementById('create-modal').classList.add('open');
+    }
+    function closeCreateModal() {
+      document.getElementById('create-modal').classList.remove('open');
+    }
+
     // ─── Session ─────────────────────────────────────
     async function startSession(id) {
-      const roleplay = getRoleplay(id);
-      if (!roleplay) { showToast('Roleplay introuvable', 'error'); return; }
+      const rpRes = await fetch(`/api/roleplays/${id}`);
+      if (!rpRes.ok) { showToast('Roleplay introuvable', 'error'); return; }
+      const roleplay = await rpRes.json();
 
       const modal = document.getElementById('session-modal');
       const title = document.getElementById('session-modal-title');
@@ -241,12 +317,12 @@
           return;
         }
 
-        const { code, roleplay: rp } = await res.json();
-        activeSessions.set(code, rp);
+        const { code, gmSecret, roleplay: rp } = await res.json();
+        activeSessions.set(code, { ...rp, gmSecret });
         renderActiveSessions();
 
         const playerUrl = `${window.location.origin}/player/${code}`;
-        const gmUrl = `/gm/${code}`;
+        const gmUrl = `/gm/${code}#${gmSecret}`;
 
         body.innerHTML = `
           <div style="text-align:center;margin-bottom:24px;">
@@ -273,7 +349,7 @@
       if (activeSessions.size === 0) { container.style.display = 'none'; return; }
       container.style.display = 'block';
       list.innerHTML = [...activeSessions.entries()].map(([code, rp]) => `
-        <a href="/gm/${code}" class="session-chip" target="_blank">
+        <a href="/gm/${code}#${rp.gmSecret}" class="session-chip" target="_blank">
           <span class="session-chip-code">${code}</span>
           <span>${escHtml(rp.name)}</span>
         </a>
@@ -282,6 +358,10 @@
 
     function copyLink(url) {
       navigator.clipboard.writeText(url).then(() => showToast('Lien copié !', 'success'));
+    }
+
+    function copyAdventureLink(inviteCode) {
+      copyLink(`${window.location.origin}/adventure/${inviteCode}`);
     }
 
     function closeSessionModal() {
@@ -301,11 +381,18 @@
       pendingDeleteId = null;
     }
 
-    function deleteRoleplay(id) {
-      lsDelete(id);
-      showToast('Roleplay supprimé', 'success');
-      closeConfirm();
-      loadRoleplays();
+    async function deleteRoleplay(id) {
+      try {
+        const res = await fetch(`/api/roleplays/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (!res.ok) { showToast(data.error || 'Erreur lors de la suppression', 'error'); closeConfirm(); return; }
+        showToast('Roleplay supprimé', 'success');
+        closeConfirm();
+        loadRoleplays();
+      } catch {
+        showToast('Impossible de contacter le serveur.', 'error');
+        closeConfirm();
+      }
     }
 
     // ─── Utils ───────────────────────────────────────
@@ -328,9 +415,15 @@
     document.addEventListener('click', e => {
       if (e.target === document.getElementById('confirm-modal')) closeConfirm();
       if (e.target === document.getElementById('session-modal')) closeSessionModal();
+      if (e.target === document.getElementById('create-modal')) closeCreateModal();
     });
 
-    loadRoleplays();
+    (async () => {
+      const me = await checkAuth();
+      if (!me) return;
+      document.getElementById('user-label').textContent = me.username;
+      loadRoleplays();
+    })();
   </script>
 </body>
 </html>

@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Panneau MJ — Aventure</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/cards.css">
+  <link rel="stylesheet" href="/css/aventure.css">
+  <style>
+    .seance-badge.live { background: var(--success); color: #fff; }
+    .seance-badge.closed { background: var(--text-muted); color: #fff; }
+    .connected-dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px;
+      background: var(--text-muted);
+    }
+    .connected-dot.online { background: var(--success); }
+
+    html, body {
+      height: 100%;
+      overflow: hidden;
+    }
+    body {
+      display: flex;
+      flex-direction: column;
+    }
+    .session-header { flex-shrink: 0; }
+
+    .gm-live-layout {
+      display: grid;
+      grid-template-columns: 1fr 320px;
+      flex: 1;
+      min-height: 0;
+    }
+    .gm-stage { padding: 12px; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+    .gm-stage-inner {
+      position: relative;
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #000;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    #gm-stage-media { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+    #gm-stage-image { width: 100%; height: 100%; object-fit: contain; }
+    #gm-stage-audio { flex-shrink: 0; height: 32px; margin-top: 6px; }
+    .gm-sidebar-scroll {
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      padding: 14px;
+      overflow-y: auto;
+      min-height: 0;
+    }
+    .gm-sidebar-scroll .gm-section-title { font-size: 0.9rem; margin-bottom: 8px; }
+    .gm-sidebar-scroll .gm-section { margin-bottom: 14px; }
+    .gm-players-bar {
+      flex-shrink: 0;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      max-height: 30vh;
+      overflow: hidden;
+    }
+    .gm-players-bar .gm-section-title { padding: 8px 20px 0; margin: 0; }
+    .players-bar-list { display: flex; gap: 10px; overflow-x: auto; overflow-y: hidden; padding: 6px 20px 10px; }
+    .player-chip {
+      flex: 0 0 auto;
+      width: 120px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 8px;
+      text-align: center;
+    }
+    .player-chip-icon { font-size: 1.4rem; position: relative; display: inline-block; }
+    .player-chip-name { font-weight: 700; font-size: 0.78rem; margin: 2px 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .player-chip-actions { display: flex; gap: 6px; justify-content: center; }
+    .chapter-media-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 4px 0;
+      cursor: pointer;
+    }
+    .chapter-media-thumb {
+      width: 32px; height: 32px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border); flex-shrink: 0;
+    }
+    @media (max-width: 900px) {
+      html, body { height: auto; overflow: auto; }
+      .gm-live-layout { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="session-header">
+    <div>
+      <div class="session-title" id="roleplay-name">Chargement...</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <span class="badge seance-badge closed" id="seance-badge">Séance fermée</span>
+      <button class="btn btn-gold btn-sm" id="btn-open-seance" onclick="toggleSeance()">▶ Ouvrir la séance</button>
+      <a href="/" class="btn btn-ghost btn-sm">← Retour</a>
+    </div>
+  </div>
+
+  <div class="gm-live-layout">
+    <div class="gm-stage">
+      <div class="gm-stage-inner" id="gm-stage-container">
+        <div id="gm-stage-media">
+          <p class="text-muted text-sm">Aucune image affichée. Choisissez un chapitre puis une image à droite.</p>
+        </div>
+        <div class="token-layer" id="gm-token-layer"></div>
+      </div>
+      <audio id="gm-stage-audio" controls style="width:100%;margin-top:12px;display:none;"></audio>
+    </div>
+
+    <div class="gm-sidebar-scroll">
+      <div class="gm-section">
+        <div class="gm-section-title">🗺 Chapitres</div>
+        <div id="chapters-sidebar-list"></div>
+      </div>
+      <div class="gm-section" id="chapter-assets-section" style="display:none;">
+        <div class="gm-section-title">🖼 Images du chapitre</div>
+        <div id="chapter-maps-list"><p class="text-muted text-sm">Aucune image liée.</p></div>
+        <div class="gm-section-title" style="margin-top:16px;">🎵 Musiques du chapitre</div>
+        <div id="chapter-music-list"><p class="text-muted text-sm">Aucune musique liée.</p></div>
+        <div class="gm-section-title" style="margin-top:16px;">🧝 PNJ du chapitre</div>
+        <div id="chapter-npcs-list"><p class="text-muted text-sm">Aucun PNJ lié.</p></div>
+      </div>
+      <div class="gm-section">
+        <div class="gm-section-title">🎲 Jet de dés</div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input type="number" class="form-input" id="dice-count" value="1" min="1" max="20" style="width:70px;">
+          <span>d</span>
+          <input type="number" class="form-input" id="dice-sides" value="100" min="2" max="1000" style="width:80px;">
+          <button class="btn btn-secondary btn-sm" onclick="rollGmDice()">Lancer</button>
+        </div>
+        <div id="dice-log" style="margin-top:10px;font-size:0.85rem;"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="gm-players-bar">
+    <div class="gm-section-title">👥 Joueurs</div>
+    <div id="characters-list" class="players-bar-list"><p class="text-muted text-sm">Chargement...</p></div>
+  </div>
+
+  <!-- Character edit modal -->
+  <div class="modal-overlay" id="char-edit-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title" id="char-edit-title">Personnage</h3>
+        <button class="modal-close" onclick="closeCharEditModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="stats-grid" id="char-edit-stats"></div>
+        <div class="form-group" style="margin-top:20px;">
+          <label class="form-label">Inventaire (un objet par ligne)</label>
+          <textarea class="form-textarea" id="char-edit-inventory" rows="4"></textarea>
+        </div>
+        <div class="form-group">
+          <div class="section-header" style="margin-bottom:10px;">
+            <div><label class="form-label" style="margin:0;">Compétences</label></div>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="addCharEditSkill()">+ Ajouter</button>
+          </div>
+          <div id="char-edit-skills-list"></div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Ajouter une entrée de journal</label>
+          <textarea class="form-textarea" id="char-edit-journal-entry" rows="2" placeholder="Événement, note pour le joueur..."></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeCharEditModal()">Fermer</button>
+        <button class="btn btn-secondary" onclick="addJournalEntry()">+ Ajouter au journal</button>
+        <button class="btn btn-primary" onclick="saveCharEdit()">Enregistrer stats/inventaire</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Message privé modal -->
+  <div class="modal-overlay" id="msg-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title" id="msg-modal-title">Message privé</h3>
+        <button class="modal-close" onclick="closeMsgModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted text-sm" id="msg-offline-notice" style="display:none;">⚠ Ce joueur n'est pas connecté actuellement — votre message sera visible à sa prochaine connexion.</p>
+        <div id="msg-thread" style="max-height:320px;overflow-y:auto;margin-bottom:16px;"></div>
+        <div style="display:flex;gap:8px;">
+          <input type="text" class="form-input" id="msg-input" placeholder="Votre message..." maxlength="1000">
+          <button class="btn btn-primary" onclick="sendGmMessage()">Envoyer</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-container" id="toast-container"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const roleplayId = window.location.pathname.split('/').pop();
+    const socket = io();
+    let gmState = null;
+    let mediaList = [];
+    let editingCharacterId = null;
+    let openMsgCharacterId = null;
+    const unreadByCharacter = new Map();
+
+    socket.on('connect', () => {
+      socket.emit('adv:gm:connect', { roleplayId });
+    });
+
+    socket.on('adv:error', (msg) => showToast(msg, 'error'));
+
+    socket.on('adv:gm:state', (state) => {
+      gmState = state;
+      renderAll();
+    });
+
+    socket.on('adv:gm:diceResult', (result) => {
+      const log = document.getElementById('dice-log');
+      const line = document.createElement('div');
+      line.textContent = `🎲 ${result.count}d${result.sides} → ${result.rolls.join(', ')} = ${result.total}`;
+      log.prepend(line);
+      while (log.children.length > 10) log.removeChild(log.lastChild);
+    });
+
+    socket.on('adv:gm:playerJoined', ({ name }) => showToast(`${name} a rejoint la séance`, 'success'));
+    socket.on('adv:gm:playerLeft', () => showToast('Un joueur s\'est déconnecté', 'info'));
+
+    socket.on('adv:skill:result', (result) => {
+      const log = document.getElementById('dice-log');
+      const line = document.createElement('div');
+      line.innerHTML = `🎲 <strong>${esc(result.skillName)}</strong> (${esc(result.characterName)}) : 1d100=${result.percentile} · 1d${result.diceSides}=<strong>${result.skillRoll}</strong>`;
+      log.prepend(line);
+      while (log.children.length > 10) log.removeChild(log.lastChild);
+      showToast(`🎲 ${result.characterName} — ${result.skillName} : ${result.percentile} / d${result.diceSides}=${result.skillRoll}`, 'info');
+    });
+
+    socket.on('adv:token:position', ({ characterId, x, y }) => updateTokenPosition(characterId, x, y));
+
+    socket.on('adv:gm:playerMessage', ({ characterId, name, message }) => {
+      if (openMsgCharacterId === characterId) {
+        appendMsgToThread(message);
+      } else {
+        unreadByCharacter.set(characterId, (unreadByCharacter.get(characterId) || 0) + 1);
+        renderCharacters();
+        showToast(`💬 ${name} : ${message.text}`, 'info');
+      }
+    });
+
+    async function loadMedia() {
+      const res = await fetch(`/api/adventures/${roleplayId}/media`);
+      if (res.ok) mediaList = await res.json();
+      if (gmState) { renderStage(); renderChapterAssets(); }
+    }
+
+    let selectedChapterId = null;
+
+    function renderAll() {
+      if (!gmState) return;
+      document.getElementById('roleplay-name').textContent = gmState.roleplay?.name || '';
+      document.documentElement.style.setProperty('--theme', gmState.roleplay?.themeColor);
+
+      const badge = document.getElementById('seance-badge');
+      const btn = document.getElementById('btn-open-seance');
+      badge.textContent = gmState.isLive ? `Séance ouverte · ${gmState.connectedPlayers.length} connecté(s)` : 'Séance fermée';
+      badge.classList.toggle('live', gmState.isLive);
+      badge.classList.toggle('closed', !gmState.isLive);
+      btn.textContent = gmState.isLive ? '⏹ Fermer la séance' : '▶ Ouvrir la séance';
+
+      if (!selectedChapterId) {
+        const current = (gmState.chapters || []).find(c => c.isCurrent);
+        if (current) selectedChapterId = current.id;
+      }
+
+      renderStage();
+      renderChapters();
+      renderChapterAssets();
+      renderCharacters();
+    }
+
+    function toggleSeance() {
+      if (gmState.isLive) socket.emit('adv:gm:closeSeance', { roleplayId });
+      else socket.emit('adv:gm:openSeance', { roleplayId });
+    }
+
+    let currentMediaId = null;
+
+    function renderStage() {
+      const media = document.getElementById('gm-stage-media');
+      if (gmState.nowShowing) {
+        currentMediaId = gmState.nowShowing.mediaId;
+        media.innerHTML = `<img id="gm-stage-image" src="/api/adventures/${roleplayId}/media/${gmState.nowShowing.mediaId}/file">`;
+      } else {
+        currentMediaId = null;
+        media.innerHTML = '<p class="text-muted text-sm">Aucune image affichée. Choisissez un chapitre puis une image à droite.</p>';
+      }
+      renderTokens(gmState.tokenPositions || []);
+
+      const audio = document.getElementById('gm-stage-audio');
+      if (gmState.nowPlaying) {
+        const url = `/api/adventures/${roleplayId}/media/${gmState.nowPlaying.mediaId}/file`;
+        if (!audio.src.endsWith(url)) audio.src = url;
+        audio.style.display = '';
+        const offset = Math.max(0, (Date.now() - gmState.nowPlaying.startedAt) / 1000);
+        if (audio.paused) { audio.currentTime = offset; audio.play().catch(() => {}); }
+      } else {
+        audio.pause();
+        audio.style.display = 'none';
+      }
+    }
+
+    // ─── Tokens (le MJ peut déplacer n'importe quel token) ────
+    function renderTokens(positions) {
+      const layer = document.getElementById('gm-token-layer');
+      if (!currentMediaId) { layer.innerHTML = ''; return; }
+      const characters = gmState.characters || [];
+      layer.innerHTML = positions.map(p => {
+        const c = characters.find(ch => ch.id === p.characterId);
+        if (!c) return '';
+        const visual = c.tokenMediaId
+          ? `<img src="/api/adventures/${roleplayId}/media/${c.tokenMediaId}/file">`
+          : (c.icon || '❓');
+        return `
+          <div class="token" data-character-id="${p.characterId}" style="left:${p.x}%;top:${p.y}%;">
+            ${visual}
+            <span class="token-label">${esc(c.name)}</span>
+          </div>
+        `;
+      }).join('');
+      attachTokenDragHandlers();
+    }
+
+    function attachTokenDragHandlers() {
+      document.querySelectorAll('#gm-token-layer .token').forEach(el => {
+        el.addEventListener('pointerdown', onTokenPointerDown);
+      });
+    }
+
+    let draggingToken = null;
+
+    function onTokenPointerDown(e) {
+      e.preventDefault();
+      const el = e.currentTarget;
+      draggingToken = { el, characterId: el.dataset.characterId };
+      el.classList.add('dragging');
+      el.setPointerCapture(e.pointerId);
+      el.addEventListener('pointermove', onTokenPointerMove);
+      el.addEventListener('pointerup', onTokenPointerUp);
+      el.addEventListener('pointercancel', onTokenPointerUp);
+    }
+
+    function computePercentFromEvent(e) {
+      const rect = document.getElementById('gm-stage-container').getBoundingClientRect();
+      const x = Math.min(100, Math.max(0, ((e.clientX - rect.left) / rect.width) * 100));
+      const y = Math.min(100, Math.max(0, ((e.clientY - rect.top) / rect.height) * 100));
+      return { x, y };
+    }
+
+    function onTokenPointerMove(e) {
+      if (!draggingToken) return;
+      const { x, y } = computePercentFromEvent(e);
+      draggingToken.el.style.left = `${x}%`;
+      draggingToken.el.style.top = `${y}%`;
+      socket.emit('adv:token:drag', { roleplayId, characterId: draggingToken.characterId, x, y });
+    }
+
+    function onTokenPointerUp(e) {
+      if (!draggingToken) return;
+      const { x, y } = computePercentFromEvent(e);
+      socket.emit('adv:token:drop', { roleplayId, characterId: draggingToken.characterId, x, y });
+      draggingToken.el.classList.remove('dragging');
+      draggingToken.el.removeEventListener('pointermove', onTokenPointerMove);
+      draggingToken.el.removeEventListener('pointerup', onTokenPointerUp);
+      draggingToken.el.removeEventListener('pointercancel', onTokenPointerUp);
+      draggingToken = null;
+    }
+
+    function updateTokenPosition(characterId, x, y) {
+      const el = document.querySelector(`#gm-token-layer .token[data-character-id="${characterId}"]`);
+      if (el && draggingToken?.characterId !== characterId) {
+        el.style.left = `${x}%`;
+        el.style.top = `${y}%`;
+      }
+    }
+
+    function renderChapters() {
+      const list = document.getElementById('chapters-sidebar-list');
+      const chapters = gmState.chapters || [];
+      if (chapters.length === 0) {
+        list.innerHTML = '<p class="text-muted text-sm">Aucun chapitre. Créez-en dans l\'éditeur.</p>';
+        return;
+      }
+      list.innerHTML = chapters.map(c => `
+        <div class="character-item" style="cursor:pointer;${selectedChapterId === c.id ? 'border-color:var(--accent);' : ''}" onclick="selectChapter('${c.id}')">
+          <div class="character-item-info">
+            <div class="character-item-name">${esc(c.title)} ${c.isCurrent ? '<span class="badge badge-gold">Actuel</span>' : ''}</div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function selectChapter(chapterId) {
+      selectedChapterId = chapterId;
+      socket.emit('adv:gm:setCurrentChapter', { roleplayId, chapterId });
+      renderChapters();
+      renderChapterAssets();
+    }
+
+    function renderChapterAssets() {
+      const section = document.getElementById('chapter-assets-section');
+      const chapter = (gmState.chapters || []).find(c => c.id === selectedChapterId);
+      if (!chapter) { section.style.display = 'none'; return; }
+      section.style.display = '';
+
+      const maps = mediaList.filter(m => m.kind === 'map' && (chapter.mediaIds || []).includes(m.id));
+      const music = mediaList.filter(m => m.kind === 'music' && (chapter.mediaIds || []).includes(m.id));
+      const npcs = (gmState.npcs || []).filter(n => (chapter.npcIds || []).includes(n.id));
+
+      document.getElementById('chapter-maps-list').innerHTML = maps.length ? maps.map(m => `
+        <div class="chapter-media-row" onclick="showMedia('${m.id}')">
+          <img class="chapter-media-thumb" src="/api/adventures/${roleplayId}/media/${m.id}/file">
+          <span class="text-sm">${esc(m.originalName)}</span>
+        </div>
+      `).join('') : '<p class="text-muted text-sm">Aucune image liée à ce chapitre.</p>';
+
+      document.getElementById('chapter-music-list').innerHTML = music.length ? music.map(m => `
+        <div class="character-item">
+          <div class="character-item-info"><div class="character-item-name">${esc(m.originalName)}</div></div>
+          <button class="btn btn-gold btn-sm" onclick="playMusic('${m.id}')">▶</button>
+          <button class="btn btn-secondary btn-sm" onclick="pauseMusic()">⏸</button>
+        </div>
+      `).join('') : '<p class="text-muted text-sm">Aucune musique liée à ce chapitre.</p>';
+
+      document.getElementById('chapter-npcs-list').innerHTML = npcs.length ? npcs.map(n => `
+        <div class="character-item">
+          <div class="character-item-icon">${n.tokenMediaId ? `<img src="/api/adventures/${roleplayId}/media/${n.tokenMediaId}/file" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">` : (n.icon || '❓')}</div>
+          <div class="character-item-info">
+            <div class="character-item-name">${esc(n.name)}</div>
+            <div class="character-item-title">${esc(n.role || n.disposition || '')}</div>
+          </div>
+        </div>
+      `).join('') : '<p class="text-muted text-sm">Aucun PNJ lié à ce chapitre.</p>';
+    }
+
+    function showMedia(mediaId) { socket.emit('adv:gm:showMedia', { roleplayId, mediaId }); }
+    function playMusic(mediaId) { socket.emit('adv:gm:playMusic', { roleplayId, mediaId }); }
+    function pauseMusic() { socket.emit('adv:gm:pauseMusic', { roleplayId }); }
+
+    function renderCharacters() {
+      const list = document.getElementById('characters-list');
+      const characters = gmState.characters || [];
+      if (characters.length === 0) {
+        list.innerHTML = '<p class="text-muted text-sm">Aucun joueur n\'a encore créé de personnage.</p>';
+        return;
+      }
+      const connectedIds = new Set(gmState.connectedPlayers.map(p => p.characterId));
+      list.innerHTML = characters.map(c => `
+        <div class="player-chip">
+          <div class="player-chip-icon">
+            <span>${c.icon || '❓'}</span>
+            <span class="connected-dot ${connectedIds.has(c.id) ? 'online' : ''}" style="position:absolute;bottom:0;right:0;"></span>
+          </div>
+          <div class="player-chip-name" title="${esc(c.name)}">${esc(c.name)}</div>
+          <div class="text-muted text-sm" style="margin-bottom:8px;">${esc(c.playerUsername || '?')}</div>
+          <div class="player-chip-actions">
+            <button class="btn btn-secondary btn-sm" style="position:relative;" onclick="openMsgModal('${c.id}', '${esc(c.name)}')">
+              💬${unreadByCharacter.get(c.id) ? `<span style="position:absolute;top:-4px;right:-4px;background:var(--danger);color:#fff;border-radius:50%;font-size:0.6rem;font-weight:800;width:15px;height:15px;display:inline-flex;align-items:center;justify-content:center;">${unreadByCharacter.get(c.id)}</span>` : ''}
+            </button>
+            <button class="btn btn-ghost btn-sm" onclick="openCharEditModal('${c.id}')">✏</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function openCharEditModal(characterId) {
+      const c = (gmState.characters || []).find(x => x.id === characterId);
+      if (!c) return;
+      editingCharacterId = characterId;
+      document.getElementById('char-edit-title').textContent = c.name;
+      const statDefs = gmState.roleplay?.statDefinitions || [];
+      document.getElementById('char-edit-stats').innerHTML = statDefs.length ? statDefs.map(def => `
+        <div class="stat-input-group">
+          <label class="stat-label">${esc(def.label)}</label>
+          <input type="number" class="stat-input" data-stat="${def.key}" value="${c.stats[def.key] ?? 0}" min="0">
+        </div>
+      `).join('') : '<p class="text-muted text-sm">Aucune statistique définie pour cette aventure.</p>';
+      document.getElementById('char-edit-inventory').value = (c.inventory || []).join('\n');
+      renderCharEditSkills(c.skills || []);
+      document.getElementById('char-edit-journal-entry').value = '';
+      document.getElementById('char-edit-modal').classList.add('open');
+    }
+
+    function closeCharEditModal() { document.getElementById('char-edit-modal').classList.remove('open'); }
+
+    function renderCharEditSkills(skills) {
+      const container = document.getElementById('char-edit-skills-list');
+      container.innerHTML = skills.map((s, i) => `
+        <div class="skill-item" data-skill-id="${s.id}">
+          <div class="skill-item-inputs">
+            <div style="display:flex;gap:8px;">
+              <input type="text" class="form-input" placeholder="Nom" value="${esc(s.name)}" data-field="name" style="flex:1;">
+              <input type="number" class="form-input" placeholder="Dé" value="${s.diceSides || 6}" data-field="dice" min="2" max="1000" style="width:70px;" title="Taille du dé de compétence (1d100 + 1dX)">
+              <button type="button" class="btn btn-gold btn-sm" onclick="rollCharEditSkill('${s.id}')" title="Lancer 1d100 + 1d${s.diceSides || 6}">🎲</button>
+            </div>
+            <input type="text" class="form-input" placeholder="Description" value="${esc(s.description || '')}" data-field="desc">
+          </div>
+          <button type="button" class="skill-remove" onclick="this.closest('.skill-item').remove()">✕</button>
+        </div>
+      `).join('');
+    }
+
+    function addCharEditSkill() {
+      const container = document.getElementById('char-edit-skills-list');
+      const div = document.createElement('div');
+      div.className = 'skill-item';
+      div.innerHTML = `
+        <div class="skill-item-inputs">
+          <div style="display:flex;gap:8px;">
+            <input type="text" class="form-input" placeholder="Nom" data-field="name" style="flex:1;">
+            <input type="number" class="form-input" placeholder="Dé" value="6" data-field="dice" min="2" max="1000" style="width:70px;">
+          </div>
+          <input type="text" class="form-input" placeholder="Description" data-field="desc">
+        </div>
+        <button type="button" class="skill-remove" onclick="this.closest('.skill-item').remove()">✕</button>
+      `;
+      container.appendChild(div);
+    }
+
+    function rollCharEditSkill(skillId) {
+      socket.emit('adv:skill:roll', { roleplayId, characterId: editingCharacterId, skillId });
+    }
+
+    function collectCharEditSkills() {
+      const skills = [];
+      document.querySelectorAll('#char-edit-skills-list .skill-item').forEach(item => {
+        const name = item.querySelector('[data-field="name"]')?.value?.trim();
+        const description = item.querySelector('[data-field="desc"]')?.value?.trim();
+        const diceSides = parseInt(item.querySelector('[data-field="dice"]')?.value) || 6;
+        if (name) skills.push({ name, description: description || '', diceSides });
+      });
+      return skills;
+    }
+
+    function saveCharEdit() {
+      const stats = {};
+      document.querySelectorAll('#char-edit-stats [data-stat]').forEach(input => {
+        stats[input.dataset.stat] = parseInt(input.value) || 0;
+      });
+      const inventory = document.getElementById('char-edit-inventory').value.split('\n').map(s => s.trim()).filter(Boolean);
+      const skills = collectCharEditSkills();
+      socket.emit('adv:gm:updateCharacterStats', { roleplayId, characterId: editingCharacterId, stats });
+      socket.emit('adv:gm:updateCharacterInventory', { roleplayId, characterId: editingCharacterId, inventory });
+      socket.emit('adv:gm:updateCharacterSkills', { roleplayId, characterId: editingCharacterId, skills });
+      showToast('Personnage mis à jour', 'success');
+      closeCharEditModal();
+    }
+
+    function addJournalEntry() {
+      const text = document.getElementById('char-edit-journal-entry').value.trim();
+      if (!text) return;
+      socket.emit('adv:gm:addJournalEntry', { roleplayId, characterId: editingCharacterId, text });
+      document.getElementById('char-edit-journal-entry').value = '';
+      showToast('Entrée de journal ajoutée', 'success');
+    }
+
+    function rollGmDice() {
+      const count = parseInt(document.getElementById('dice-count').value) || 1;
+      const sides = parseInt(document.getElementById('dice-sides').value) || 100;
+      socket.emit('adv:gm:rollDice', { roleplayId, count, sides });
+    }
+
+    // ─── Messagerie privée ────────────────────────────
+    function openMsgModal(characterId, name) {
+      openMsgCharacterId = characterId;
+      unreadByCharacter.delete(characterId);
+      renderCharacters();
+
+      document.getElementById('msg-modal-title').textContent = `Message privé — ${name}`;
+      const connected = gmState.connectedPlayers.some(p => p.characterId === characterId);
+      document.getElementById('msg-offline-notice').style.display = connected ? 'none' : 'block';
+
+      const character = (gmState.characters || []).find(c => c.id === characterId);
+      const thread = document.getElementById('msg-thread');
+      thread.innerHTML = '';
+      (character?.messages || []).forEach(appendMsgToThread);
+
+      document.getElementById('msg-input').value = '';
+      document.getElementById('msg-modal').classList.add('open');
+    }
+
+    function closeMsgModal() {
+      openMsgCharacterId = null;
+      document.getElementById('msg-modal').classList.remove('open');
+    }
+
+    function appendMsgToThread(msg) {
+      const thread = document.getElementById('msg-thread');
+      const bubble = document.createElement('div');
+      bubble.style.cssText = `margin-bottom:8px;padding:8px 12px;border-radius:var(--radius-sm);max-width:80%;${msg.from === 'gm' ? 'background:var(--accent);margin-left:auto;' : 'background:var(--surface);border:1px solid var(--border);'}`;
+      bubble.textContent = msg.text;
+      thread.appendChild(bubble);
+      thread.scrollTop = thread.scrollHeight;
+    }
+
+    function sendGmMessage() {
+      const input = document.getElementById('msg-input');
+      const text = input.value.trim();
+      if (!text || !openMsgCharacterId) return;
+      socket.emit('adv:gm:message', { roleplayId, characterId: openMsgCharacterId, text });
+      appendMsgToThread({ text, from: 'gm' });
+      input.value = '';
+    }
+
+    function esc(s) {
+      return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+    function showToast(msg, type = 'info') {
+      const c = document.getElementById('toast-container');
+      const t = document.createElement('div');
+      t.className = `toast ${type}`;
+      t.textContent = msg;
+      c.appendChild(t);
+      setTimeout(() => t.remove(), 3200);
+    }
+
+    document.getElementById('char-edit-modal').addEventListener('click', e => {
+      if (e.target === document.getElementById('char-edit-modal')) closeCharEditModal();
+    });
+    document.getElementById('msg-modal').addEventListener('click', e => {
+      if (e.target === document.getElementById('msg-modal')) closeMsgModal();
+    });
+    document.getElementById('msg-input').addEventListener('keydown', e => {
+      if (e.key === 'Enter') sendGmMessage();
+    });
+
+    loadMedia();
+  </script>
+</body>
+</html>

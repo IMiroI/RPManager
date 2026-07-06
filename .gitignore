@@ -10,6 +10,8 @@ node_modules/
 # ── Données runtime ───────────────────────────────────────────────────────────
 # Fichiers de jeu de rôle créés par l'API (données utilisateur, pas du code)
 data/
+# Médias uploadés (cartes/musiques) pour les Aventures
+uploads/
 
 # ── Logs ──────────────────────────────────────────────────────────────────────
 logs/

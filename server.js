@@ -11,8 +11,17 @@ const os = require('os');
 const { randomBytes } = require('crypto');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const session = require('express-session');
+const { MongoStore } = require('connect-mongo');
 const { GameEngine } = require('./gameEngine');
 const rp = require('./roleplaysManager');
+const { connectDB, MONGODB_URI } = require('./db');
+const { router: authRouter, requireAuth } = require('./auth');
+const { router: adventuresRouter } = require('./adventures');
+const adv = require('./adventuresManager');
+const adventureEngine = require('./adventureEngine');
+const Roleplay = require('./models/Roleplay');
+const AdventureCharacter = require('./models/AdventureCharacter');
 
 const app = express();
 
@@ -22,6 +31,11 @@ const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: CORS_ORIGINS } });
 
 const PORT = process.env.PORT || 3001;
+const SESSION_SECRET = process.env.SESSION_SECRET;
+if (!SESSION_SECRET) {
+  console.error('SESSION_SECRET manquant dans .env — arrêt.');
+  process.exit(1);
+}
 
 // Active sessions: code -> { engine, roleplay, gmSecret, gmSocketId }
 const sessions = new Map();
@@ -45,21 +59,47 @@ app.use(rateLimit({
   legacyHeaders: false,
   message: { error: 'Trop de requêtes' },
 }));
-app.use(express.json({ limit: '10kb' }));
+app.set('trust proxy', 1);
+app.use(express.json({ limit: '2mb' }));
+
+const sessionMiddleware = session({
+  secret: SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  store: MongoStore.create({ mongoUrl: MONGODB_URI, collectionName: 'sessions' }),
+  cookie: {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: 'auto', // cookie sécurisé uniquement si la requête arrive en HTTPS (direct ou via reverse proxy)
+    maxAge: 30 * 24 * 60 * 60 * 1000
+  }
+});
+app.use(sessionMiddleware);
+// Rend req.session disponible sur les sockets Aventure (socket.request.session) —
+// les handlers gm:*/player: * existants ne le lisent jamais, comportement OneShot inchangé.
+io.engine.use(sessionMiddleware);
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ─── API Roleplays ───────────────────────────────────
-app.get('/api/roleplays', (req, res) => res.json(rp.getAllRoleplays()));
+// ─── API Auth ────────────────────────────────────────
+app.use('/api/auth', authRouter);
 
-app.get('/api/roleplays/:id', (req, res) => {
-  const data = rp.getRoleplay(req.params.id);
+// ─── API Aventures ───────────────────────────────────
+app.use('/api/adventures', adventuresRouter);
+
+// ─── API Roleplays ───────────────────────────────────
+app.get('/api/roleplays', requireAuth, async (req, res) => {
+  res.json(await rp.getAllRoleplays(req.session.userId));
+});
+
+app.get('/api/roleplays/:id', requireAuth, async (req, res) => {
+  const data = await rp.getRoleplay(req.params.id, req.session.userId);
   if (!data) return res.status(404).json({ error: 'Introuvable' });
   res.json(data);
 });
 
-app.post('/api/roleplays', (req, res) => {
+app.post('/api/roleplays', requireAuth, async (req, res) => {
   try {
-    const data = rp.createRoleplay(req.body);
+    const data = await rp.createRoleplay(req.body, req.session.userId);
     res.status(201).json(data);
   } catch (e) {
     console.error('Erreur:', e);
@@ -67,10 +107,16 @@ app.post('/api/roleplays', (req, res) => {
   }
 });
 
-app.put('/api/roleplays/:id', (req, res) => {
+app.put('/api/roleplays/:id', requireAuth, async (req, res) => {
   try {
-    const data = rp.updateRoleplay(req.params.id, req.body);
+    const before = await rp.getRoleplay(req.params.id, req.session.userId);
+    const data = await rp.updateRoleplay(req.params.id, req.body, req.session.userId);
     if (!data) return res.status(404).json({ error: 'Introuvable' });
+
+    if (data.type === 'aventure' && req.body.statDefinitions !== undefined) {
+      await adv.syncStatDefinitions(req.params.id, before?.statDefinitions, data.statDefinitions);
+    }
+
     res.json(data);
   } catch (e) {
     console.error('Erreur:', e);
@@ -78,14 +124,14 @@ app.put('/api/roleplays/:id', (req, res) => {
   }
 });
 
-app.delete('/api/roleplays/:id', (req, res) => {
+app.delete('/api/roleplays/:id', requireAuth, async (req, res) => {
   for (const [, session] of sessions) {
     if (session.roleplay.id === req.params.id) {
       return res.status(409).json({ error: 'Une session est en cours pour ce roleplay.' });
     }
   }
   try {
-    const ok = rp.deleteRoleplay(req.params.id);
+    const ok = await rp.deleteRoleplay(req.params.id, req.session.userId);
     if (!ok) return res.status(404).json({ error: 'Introuvable' });
     res.json({ success: true });
   } catch (e) {
@@ -144,11 +190,50 @@ app.delete('/api/sessions/:code', (req, res) => {
 });
 
 // ─── Pages ───────────────────────────────────────────
+app.get('/login', (req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
+app.get('/register', (req, res) => res.sendFile(path.join(__dirname, 'public', 'register.html')));
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 app.get('/editor', (req, res) => res.sendFile(path.join(__dirname, 'public', 'editor.html')));
 app.get('/editor/:id', (req, res) => res.sendFile(path.join(__dirname, 'public', 'editor.html')));
 app.get('/gm/:code', (req, res) => res.sendFile(path.join(__dirname, 'public', 'gm.html')));
 app.get('/player/:code', (req, res) => res.sendFile(path.join(__dirname, 'public', 'player.html')));
+app.get('/aventure-editor', (req, res) => res.sendFile(path.join(__dirname, 'public', 'aventure-editor.html')));
+app.get('/aventure-editor/:id', (req, res) => res.sendFile(path.join(__dirname, 'public', 'aventure-editor.html')));
+app.get('/adventure/:code', (req, res) => res.sendFile(path.join(__dirname, 'public', 'adventure.html')));
+app.get('/adventure-gm/:id', (req, res) => res.sendFile(path.join(__dirname, 'public', 'adventure-gm.html')));
+
+// ─── Aventure — helpers d'état temps réel ─────────────
+async function buildAdventureGmState(roleplayId) {
+  const roleplayDoc = await Roleplay.findById(roleplayId);
+  const seance = adventureEngine.getSeance(roleplayId);
+  const characters = await AdventureCharacter.find({ roleplay: roleplayId }).populate('player', 'username');
+  const tokenPositions = seance?.nowShowing ? await adv.getMapTokenPositions(roleplayId, seance.nowShowing.mediaId) : [];
+  return {
+    roleplay: roleplayDoc ? { id: roleplayDoc._id.toString(), name: roleplayDoc.name, themeColor: roleplayDoc.themeColor, statDefinitions: roleplayDoc.statDefinitions } : null,
+    chapters: roleplayDoc?.chapters || [],
+    npcs: roleplayDoc?.npcs || [],
+    isLive: !!seance,
+    connectedPlayers: seance ? [...seance.connectedPlayers.values()] : [],
+    nowShowing: seance?.nowShowing || null,
+    nowPlaying: seance?.nowPlaying || null,
+    tokenPositions,
+    characters: characters.map(c => {
+      const j = c.toJSON();
+      j.playerUsername = c.player?.username;
+      return j;
+    })
+  };
+}
+
+function notifyAdventureCharacterUpdate(roleplayId, character) {
+  const seance = adventureEngine.getSeance(roleplayId);
+  if (!seance) return;
+  for (const [socketId, info] of seance.connectedPlayers) {
+    if (info.characterId === character.id) {
+      io.to(socketId).emit('adv:player:characterUpdated', character);
+    }
+  }
+}
 
 // ─── Socket.io ───────────────────────────────────────
 io.on('connection', (socket) => {
@@ -455,24 +540,310 @@ io.on('connection', (socket) => {
     session.engine.removePlayer(socket.id);
     io.to(`gm:${sessionCode}`).emit('gm:state', session.engine.getGMState());
   });
+
+  // ═══════════════════════════════════════════════════
+  // ─── Aventure (temps réel) — bloc indépendant ────────
+  // Variables de fermeture et disconnect propres ; ne touche jamais
+  // aux handlers OneShot ci-dessus.
+  // ═══════════════════════════════════════════════════
+  let advRoleplayId = null;
+  let advRole = null; // 'gm' | 'player'
+  let advCharacterId = null;
+
+  function getAdvUserId() {
+    return socket.request.session?.userId || null;
+  }
+
+  // ─── MJ ──────────────────────────────────────────────
+  socket.on('adv:gm:connect', async ({ roleplayId }) => {
+    const userId = getAdvUserId();
+    if (!userId) return socket.emit('adv:error', 'Non authentifié');
+    const roleplayDoc = await adv.getOwnedAdventure(roleplayId, userId);
+    if (!roleplayDoc) return socket.emit('adv:error', 'Accès refusé');
+
+    advRoleplayId = roleplayId;
+    advRole = 'gm';
+    socket.join(`adv-gm:${roleplayId}`);
+
+    const seance = adventureEngine.getSeance(roleplayId);
+    if (seance) seance.gmSocketId = socket.id;
+
+    socket.emit('adv:gm:state', await buildAdventureGmState(roleplayId));
+  });
+
+  socket.on('adv:gm:openSeance', async ({ roleplayId }) => {
+    if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
+    adventureEngine.openSeance(roleplayId);
+    io.to(`adv-gm:${roleplayId}`).emit('adv:gm:state', await buildAdventureGmState(roleplayId));
+    io.to(`adv-players:${roleplayId}`).emit('adv:player:seanceOpened');
+  });
+
+  socket.on('adv:gm:closeSeance', async ({ roleplayId }) => {
+    if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
+    adventureEngine.closeSeance(roleplayId);
+    io.to(`adv-gm:${roleplayId}`).emit('adv:gm:state', await buildAdventureGmState(roleplayId));
+    io.to(`adv-players:${roleplayId}`).emit('adv:player:seanceClosed');
+  });
+
+  socket.on('adv:gm:setCurrentChapter', async ({ roleplayId, chapterId }) => {
+    if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
+    const chapters = await adv.setCurrentChapter(roleplayId, getAdvUserId(), chapterId);
+    if (!chapters) return;
+    const chapter = chapters.find(c => c.id === chapterId);
+    const seance = adventureEngine.getSeance(roleplayId);
+    if (seance) seance.currentChapterId = chapterId;
+    io.to(`adv-gm:${roleplayId}`).emit('adv:gm:state', await buildAdventureGmState(roleplayId));
+    io.to(`adv-players:${roleplayId}`).emit('adv:player:chapterChanged', { chapterId, title: chapter?.title });
+  });
+
+  socket.on('adv:gm:showMedia', async ({ roleplayId, mediaId }) => {
+    if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
+    const seance = adventureEngine.getSeance(roleplayId);
+    if (!seance) return;
+    seance.nowShowing = { mediaId };
+    const tokenPositions = await adv.getMapTokenPositions(roleplayId, mediaId);
+    const partyMembers = await adv.listPartyMembers(roleplayId);
+    io.to(`adv-players:${roleplayId}`).emit('adv:player:nowShowing', {
+      mediaId, url: `/api/adventures/${roleplayId}/media/${mediaId}/file`, tokenPositions, partyMembers
+    });
+    io.to(`adv-gm:${roleplayId}`).emit('adv:gm:state', await buildAdventureGmState(roleplayId));
+  });
+
+  socket.on('adv:gm:playMusic', async ({ roleplayId, mediaId }) => {
+    if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
+    const seance = adventureEngine.getSeance(roleplayId);
+    if (!seance) return;
+    seance.nowPlaying = { mediaId, startedAt: Date.now(), paused: false };
+    io.to(`adv-players:${roleplayId}`).emit('adv:player:nowPlaying', {
+      mediaId, url: `/api/adventures/${roleplayId}/media/${mediaId}/file`, startedAt: seance.nowPlaying.startedAt
+    });
+    io.to(`adv-gm:${roleplayId}`).emit('adv:gm:state', await buildAdventureGmState(roleplayId));
+  });
+
+  socket.on('adv:gm:pauseMusic', async ({ roleplayId }) => {
+    if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
+    const seance = adventureEngine.getSeance(roleplayId);
+    if (!seance || !seance.nowPlaying) return;
+    seance.nowPlaying = null;
+    io.to(`adv-players:${roleplayId}`).emit('adv:player:musicPaused');
+    io.to(`adv-gm:${roleplayId}`).emit('adv:gm:state', await buildAdventureGmState(roleplayId));
+  });
+
+  socket.on('adv:gm:updateCharacterStats', async ({ roleplayId, characterId, stats }) => {
+    if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
+    const character = await adv.updateCharacterStatsById(roleplayId, characterId, stats || {});
+    if (!character) return;
+    notifyAdventureCharacterUpdate(roleplayId, character);
+    socket.emit('adv:gm:state', await buildAdventureGmState(roleplayId));
+  });
+
+  socket.on('adv:gm:updateCharacterInventory', async ({ roleplayId, characterId, inventory }) => {
+    if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
+    const character = await adv.updateCharacterInventoryById(roleplayId, characterId, inventory);
+    if (!character) return;
+    notifyAdventureCharacterUpdate(roleplayId, character);
+    socket.emit('adv:gm:state', await buildAdventureGmState(roleplayId));
+  });
+
+  socket.on('adv:gm:updateCharacterSkills', async ({ roleplayId, characterId, skills }) => {
+    if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
+    const character = await adv.updateCharacterSkillsById(roleplayId, characterId, skills);
+    if (!character) return;
+    notifyAdventureCharacterUpdate(roleplayId, character);
+    socket.emit('adv:gm:state', await buildAdventureGmState(roleplayId));
+  });
+
+  socket.on('adv:gm:addJournalEntry', async ({ roleplayId, characterId, text }) => {
+    if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
+    if (typeof text !== 'string' || !text.trim()) return;
+    const character = await adv.appendJournalEntry(roleplayId, characterId, text.trim().slice(0, 1000), 'gm');
+    if (!character) return;
+    notifyAdventureCharacterUpdate(roleplayId, character);
+    socket.emit('adv:gm:state', await buildAdventureGmState(roleplayId));
+  });
+
+  socket.on('adv:gm:rollDice', ({ roleplayId, count, sides }) => {
+    if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
+    const result = adventureEngine.rollDice(count, sides);
+    socket.emit('adv:gm:diceResult', result);
+    io.to(`adv-players:${roleplayId}`).emit('adv:player:gmDiceResult', result);
+  });
+
+  socket.on('adv:gm:message', async ({ roleplayId, characterId, text }) => {
+    if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
+    if (typeof text !== 'string' || !text.trim()) return;
+    const safeText = text.trim().slice(0, 1000);
+
+    const character = await adv.appendPrivateMessage(roleplayId, characterId, safeText, 'gm');
+    if (!character) return;
+    const msg = character.messages[character.messages.length - 1];
+
+    const seance = adventureEngine.getSeance(roleplayId);
+    if (seance) {
+      for (const [socketId, info] of seance.connectedPlayers) {
+        if (info.characterId === characterId) { io.to(socketId).emit('adv:player:privateMessage', msg); break; }
+      }
+    }
+    socket.emit('adv:gm:state', await buildAdventureGmState(roleplayId));
+  });
+
+  // ─── Joueur ──────────────────────────────────────────
+  socket.on('adv:player:join', async ({ roleplayId }) => {
+    const userId = getAdvUserId();
+    if (!userId) return socket.emit('adv:error', 'Non authentifié');
+    const character = await adv.getCharacter(roleplayId, userId);
+    if (!character) return socket.emit('adv:error', 'Aucun personnage sur cette aventure');
+    const seance = adventureEngine.getSeance(roleplayId);
+    if (!seance) return socket.emit('adv:error', 'Aucune séance en cours');
+
+    advRoleplayId = roleplayId;
+    advRole = 'player';
+    advCharacterId = character.id;
+    socket.join(`adv-players:${roleplayId}`);
+    seance.connectedPlayers.set(socket.id, { userId, characterId: character.id, name: character.name });
+
+    const roleplayDoc = await Roleplay.findById(roleplayId);
+    const chapter = (roleplayDoc?.chapters || []).find(c => c.id === seance.currentChapterId)
+      || (roleplayDoc?.chapters || []).find(c => c.isCurrent);
+    const tokenPositions = seance.nowShowing ? await adv.getMapTokenPositions(roleplayId, seance.nowShowing.mediaId) : [];
+    const partyMembers = await adv.listPartyMembers(roleplayId);
+    const nowShowing = seance.nowShowing
+      ? { mediaId: seance.nowShowing.mediaId, url: `/api/adventures/${roleplayId}/media/${seance.nowShowing.mediaId}/file` }
+      : null;
+
+    socket.emit('adv:player:state', {
+      character,
+      chapterTitle: chapter?.title || null,
+      nowShowing,
+      nowPlaying: seance.nowPlaying,
+      tokenPositions,
+      partyMembers
+    });
+
+    io.to(`adv-gm:${roleplayId}`).emit('adv:gm:playerJoined', { characterId: character.id, name: character.name });
+    io.to(`adv-gm:${roleplayId}`).emit('adv:gm:state', await buildAdventureGmState(roleplayId));
+  });
+
+  socket.on('adv:player:rollDice', ({ roleplayId, count, sides }) => {
+    if (advRole !== 'player' || advRoleplayId !== roleplayId) return;
+    const result = adventureEngine.rollDice(count, sides);
+    socket.emit('adv:player:diceResult', result);
+    io.to(`adv-gm:${roleplayId}`).emit('adv:gm:diceResult', result);
+  });
+
+  // ─── Jet de compétence (1d100 + 1d(taille définie sur la compétence)) ───
+  // Autorisation : le MJ peut lancer n'importe quelle compétence, le joueur uniquement les siennes.
+  socket.on('adv:skill:roll', async ({ roleplayId, characterId, skillId }) => {
+    const isGm = advRole === 'gm' && advRoleplayId === roleplayId;
+    const isOwner = advRole === 'player' && advRoleplayId === roleplayId && advCharacterId === characterId;
+    if (!isGm && !isOwner) return;
+
+    const character = await adv.getCharacterById(roleplayId, characterId);
+    if (!character) return;
+    const skill = (character.skills || []).find(s => s.id === skillId);
+    if (!skill) return;
+
+    const percentile = adventureEngine.rollDice(1, 100).rolls[0];
+    const skillRoll = adventureEngine.rollDice(1, skill.diceSides || 6).rolls[0];
+    const result = {
+      characterId, characterName: character.name,
+      skillId, skillName: skill.name, diceSides: skill.diceSides || 6,
+      percentile, skillRoll
+    };
+
+    socket.emit('adv:skill:result', result);
+    if (isOwner) {
+      io.to(`adv-gm:${roleplayId}`).emit('adv:skill:result', result);
+    } else {
+      const seance = adventureEngine.getSeance(roleplayId);
+      if (seance) {
+        for (const [socketId, info] of seance.connectedPlayers) {
+          if (info.characterId === characterId) { io.to(socketId).emit('adv:skill:result', result); break; }
+        }
+      }
+    }
+  });
+
+  socket.on('adv:player:sendMessage', async ({ roleplayId, text }) => {
+    if (advRole !== 'player' || advRoleplayId !== roleplayId) return;
+    if (typeof text !== 'string' || !text.trim()) return;
+    const safeText = text.trim().slice(0, 1000);
+
+    const character = await adv.appendPrivateMessage(roleplayId, advCharacterId, safeText, 'player');
+    if (!character) return;
+    const msg = character.messages[character.messages.length - 1];
+
+    io.to(`adv-gm:${roleplayId}`).emit('adv:gm:playerMessage', { characterId: advCharacterId, name: character.name, message: msg });
+    io.to(`adv-gm:${roleplayId}`).emit('adv:gm:state', await buildAdventureGmState(roleplayId));
+  });
+
+  socket.on('adv:player:requestState', async ({ roleplayId }) => {
+    if (advRole !== 'player' || advRoleplayId !== roleplayId) return;
+    const character = await adv.getCharacterById(roleplayId, advCharacterId);
+    const seance = adventureEngine.getSeance(roleplayId);
+    if (!character || !seance) return;
+    const tokenPositions = seance.nowShowing ? await adv.getMapTokenPositions(roleplayId, seance.nowShowing.mediaId) : [];
+    const partyMembers = await adv.listPartyMembers(roleplayId);
+    socket.emit('adv:player:state', {
+      character,
+      nowShowing: seance.nowShowing,
+      nowPlaying: seance.nowPlaying,
+      tokenPositions,
+      partyMembers
+    });
+  });
+
+  // ─── Token (déplacement sur la carte, façon Roll20) ─────────
+  // Autorisation : le MJ peut déplacer n'importe quel token, le joueur uniquement le sien.
+  function canMoveToken(roleplayId, characterId) {
+    if (advRole === 'gm' && advRoleplayId === roleplayId) return true;
+    if (advRole === 'player' && advRoleplayId === roleplayId && advCharacterId === characterId) return true;
+    return false;
+  }
+
+  socket.on('adv:token:drag', ({ roleplayId, characterId, x, y }) => {
+    if (!canMoveToken(roleplayId, characterId)) return;
+    socket.to(`adv-players:${roleplayId}`).to(`adv-gm:${roleplayId}`).emit('adv:token:position', { characterId, x, y, final: false });
+  });
+
+  socket.on('adv:token:drop', async ({ roleplayId, characterId, x, y }) => {
+    if (!canMoveToken(roleplayId, characterId)) return;
+    const seance = adventureEngine.getSeance(roleplayId);
+    if (!seance || !seance.nowShowing) return;
+    await adv.setTokenPosition(roleplayId, seance.nowShowing.mediaId, characterId, x, y);
+    io.to(`adv-players:${roleplayId}`).to(`adv-gm:${roleplayId}`).emit('adv:token:position', { characterId, x, y, final: true });
+  });
+
+  socket.on('disconnect', () => {
+    if (advRole !== 'player' || !advRoleplayId) return;
+    const seance = adventureEngine.getSeance(advRoleplayId);
+    if (!seance) return;
+    seance.connectedPlayers.delete(socket.id);
+    io.to(`adv-gm:${advRoleplayId}`).emit('adv:gm:playerLeft', { characterId: advCharacterId });
+  });
 });
 
 // ─── Start ───────────────────────────────────────────
-server.listen(PORT, '0.0.0.0', () => {
-  const interfaces = os.networkInterfaces();
-  let localIP = 'localhost';
-  for (const name of Object.keys(interfaces)) {
-    for (const iface of interfaces[name]) {
-      if (iface.family === 'IPv4' && !iface.internal) { localIP = iface.address; break; }
+connectDB().then(() => {
+  server.listen(PORT, '0.0.0.0', () => {
+    const interfaces = os.networkInterfaces();
+    let localIP = 'localhost';
+    for (const name of Object.keys(interfaces)) {
+      for (const iface of interfaces[name]) {
+        if (iface.family === 'IPv4' && !iface.internal) { localIP = iface.address; break; }
+      }
     }
-  }
 
-  console.log('');
-  console.log('╔══════════════════════════════════════════════╗');
-  console.log('║          🎭  ROLEMASTER  🎭                  ║');
-  console.log('╠══════════════════════════════════════════════╣');
-  console.log(`║  Dashboard: http://${localIP}:${PORT}/`);
-  console.log(`║  Local:     http://localhost:${PORT}/`);
-  console.log('╚══════════════════════════════════════════════╝');
-  console.log('');
+    console.log('');
+    console.log('╔══════════════════════════════════════════════╗');
+    console.log('║          🎭  ROLEMASTER  🎭                  ║');
+    console.log('╠══════════════════════════════════════════════╣');
+    console.log(`║  Dashboard: http://${localIP}:${PORT}/`);
+    console.log(`║  Local:     http://localhost:${PORT}/`);
+    console.log('╚══════════════════════════════════════════════╝');
+    console.log('');
+  });
+}).catch(err => {
+  console.error('[DB] Connexion échouée:', err);
+  process.exit(1);
 });

@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Connexion — RPManager</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    .auth-wrap {
+      min-height: calc(100vh - 65px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .auth-card {
+      width: 100%;
+      max-width: 380px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 32px;
+      box-shadow: var(--shadow);
+    }
+    .auth-title {
+      font-size: 1.4rem;
+      font-weight: 800;
+      margin-bottom: 4px;
+      text-align: center;
+    }
+    .auth-sub {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      text-align: center;
+      margin-bottom: 24px;
+    }
+    .auth-error {
+      display: none;
+      background: rgba(192,57,43,0.15);
+      border: 1px solid var(--danger);
+      color: #ff9a8b;
+      border-radius: var(--radius-sm);
+      padding: 10px 14px;
+      font-size: 0.85rem;
+      margin-bottom: 16px;
+    }
+    .auth-footer {
+      text-align: center;
+      margin-top: 20px;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+  <header class="page-header">
+    <div class="container">
+      <a href="/" class="logo">
+        <div class="logo-icon">🎭</div>
+        <span class="logo-text">RPManager</span>
+      </a>
+    </div>
+  </header>
+
+  <main class="auth-wrap">
+    <div class="auth-card">
+      <div class="auth-title">Connexion</div>
+      <div class="auth-sub">Accédez à vos roleplays</div>
+
+      <div class="auth-error" id="auth-error"></div>
+
+      <form id="login-form">
+        <div class="form-group">
+          <label class="form-label">Nom d'utilisateur</label>
+          <input type="text" class="form-input" id="username" autocomplete="username" required autofocus>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Mot de passe</label>
+          <input type="password" class="form-input" id="password" autocomplete="current-password" required>
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;">Se connecter</button>
+      </form>
+
+      <div class="auth-footer">
+        Pas encore de compte ? <a href="/register" id="register-link">Créer un compte</a>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const nextParam = new URLSearchParams(window.location.search).get('next');
+    if (nextParam) {
+      document.getElementById('register-link').href = `/register?next=${encodeURIComponent(nextParam)}`;
+    }
+
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+      const errorBox = document.getElementById('auth-error');
+      errorBox.style.display = 'none';
+
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          errorBox.textContent = data.error || 'Erreur de connexion';
+          errorBox.style.display = 'block';
+          return;
+        }
+        const next = new URLSearchParams(window.location.search).get('next');
+        window.location.href = next || '/';
+      } catch {
+        errorBox.textContent = 'Impossible de contacter le serveur.';
+        errorBox.style.display = 'block';
+      }
+    });
+  </script>
+</body>
+</html>

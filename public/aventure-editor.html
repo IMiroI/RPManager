@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Éditeur Aventure — RPManager</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/aventure.css">
+  <style>
+    .editor-layout {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      gap: 0;
+      min-height: calc(100vh - 65px);
+    }
+    .editor-nav {
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      padding: 24px 0;
+      position: sticky;
+      top: 65px;
+      height: calc(100vh - 65px);
+      overflow-y: auto;
+    }
+    .editor-nav-item {
+      display: block;
+      padding: 10px 24px;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      border-left: 3px solid transparent;
+      transition: all var(--transition);
+      background: none;
+      border-right: none;
+      border-top: none;
+      border-bottom: none;
+      width: 100%;
+      text-align: left;
+    }
+    .editor-nav-item:hover { color: var(--text); background: var(--card); }
+    .editor-nav-item.active { color: var(--accent-light); border-left-color: var(--accent); background: rgba(124,92,191,0.08); }
+    .editor-nav-item.locked { opacity: 0.4; cursor: not-allowed; }
+    .editor-main { padding: 32px; overflow-y: auto; padding-bottom: 80px; }
+    .editor-section { display: none; }
+    .editor-section.active { display: block; }
+    .editor-section-title { font-size: 1.3rem; font-weight: 800; margin-bottom: 4px; }
+    .editor-section-subtitle { color: var(--text-muted); font-size: 0.85rem; margin-bottom: 28px; }
+    .save-bar {
+      position: fixed;
+      bottom: 0;
+      right: 0;
+      left: 220px;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      padding: 14px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      z-index: 50;
+    }
+    .save-status { font-size: 0.85rem; color: var(--text-muted); }
+    .theme-preview { height: 6px; border-radius: 3px; margin-top: 8px; }
+    .char-color-dot {
+      width: 16px; height: 16px; border-radius: 50%; display: inline-block;
+      vertical-align: middle; border: 2px solid var(--border);
+    }
+    .invite-link-box {
+      display: flex; align-items: center; gap: 10px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); padding: 12px 16px; margin-top: 8px;
+    }
+    .invite-link-code { font-family: monospace; font-size: 1.1rem; font-weight: 800; color: var(--gold-light); }
+    .chapter-current-badge { margin-left: 8px; }
+    @media (max-width: 768px) {
+      .editor-layout { grid-template-columns: 1fr; }
+      .editor-nav { position: static; height: auto; display: flex; overflow-x: auto; padding: 8px 0; border-right: none; border-bottom: 1px solid var(--border); }
+      .editor-nav-item { white-space: nowrap; border-left: none; border-bottom: 3px solid transparent; padding: 8px 16px; }
+      .editor-nav-item.active { border-bottom-color: var(--accent); border-left-color: transparent; }
+      .save-bar { left: 0; }
+    }
+  </style>
+</head>
+<body>
+  <header class="page-header">
+    <div class="container" style="display:flex;align-items:center;justify-content:space-between;">
+      <a href="/" class="logo">
+        <div class="logo-icon">🎭</div>
+        <span class="logo-text">RPManager</span>
+      </a>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <span id="page-title" class="text-muted text-sm">Nouvelle Aventure</span>
+        <span class="badge badge-accent">📖 Aventure</span>
+        <a href="/" class="btn btn-ghost btn-sm">← Retour</a>
+        <button class="btn btn-ghost btn-sm" id="logout-btn">Déconnexion</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="editor-layout">
+    <nav class="editor-nav">
+      <button class="editor-nav-item active" data-section="infos">📝 Informations</button>
+      <button class="editor-nav-item locked" data-section="npcs">🧝 PNJ <span id="npc-count-badge" class="badge badge-accent" style="margin-left:4px;">0</span></button>
+      <button class="editor-nav-item locked" data-section="chapitres">🗺 Chapitres <span id="chapter-count-badge" class="badge badge-accent" style="margin-left:4px;">0</span></button>
+      <button class="editor-nav-item locked" data-section="media">🖼 Médiathèque</button>
+    </nav>
+
+    <div class="editor-main">
+      <!-- Section: Informations -->
+      <div class="editor-section active" id="section-infos">
+        <h2 class="editor-section-title">Informations de l'Aventure</h2>
+        <p class="editor-section-subtitle">Définissez l'identité de votre campagne.</p>
+
+        <div class="form-group">
+          <label class="form-label">Nom de l'aventure *</label>
+          <input type="text" class="form-input" id="rp-name" placeholder="Ex: Les Chroniques d'Eldoria" maxlength="80">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Description</label>
+          <textarea class="form-textarea" id="rp-description" placeholder="Décrivez l'univers, l'ambiance et les enjeux de votre aventure..." rows="4"></textarea>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Couleur du thème</label>
+            <div class="color-input-group">
+              <input type="color" id="rp-color" value="#8B6914">
+              <input type="text" class="form-input" id="rp-color-text" value="#8B6914" placeholder="#rrggbb" style="font-family:monospace;">
+            </div>
+            <div class="theme-preview" id="theme-preview" style="background:#8B6914;"></div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Nombre max de joueurs</label>
+            <input type="number" class="form-input" id="rp-max-players" value="10" min="1" max="20">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Budget de points (création de personnage)</label>
+          <input type="number" class="form-input" id="rp-point-budget" value="30" min="0" max="200">
+          <p class="text-sm text-muted" style="margin-top:4px;">Somme totale que les joueurs pourront répartir sur les statistiques ci-dessous (min 1, max 10 par statistique).</p>
+        </div>
+
+        <div class="form-group">
+          <div class="section-header" style="margin-bottom:10px;">
+            <div>
+              <label class="form-label" style="margin:0;">Statistiques des personnages</label>
+              <p class="text-sm text-muted">Choisissez librement les statistiques que les joueurs devront renseigner — toutes facultatives, vous pouvez aussi en inventer.</p>
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="addStatDefinition()">+ Ajouter une statistique</button>
+          </div>
+          <div id="stat-definitions-list"></div>
+        </div>
+
+        <div class="form-group" id="invite-link-group" style="display:none;">
+          <label class="form-label">Lien d'invitation permanent</label>
+          <div class="invite-link-box">
+            <span class="invite-link-code" id="invite-code-display"></span>
+            <button class="btn btn-secondary btn-sm" onclick="copyInviteLink()">📋 Copier le lien</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section: PNJ -->
+      <div class="editor-section" id="section-npcs">
+        <div class="section-header">
+          <div>
+            <h2 class="editor-section-title">Personnages Non-Joueurs</h2>
+            <p class="editor-section-subtitle">Les PNJ de votre aventure, avec fiche de statistiques complète.</p>
+          </div>
+          <button class="btn btn-primary" onclick="openNpcModal()">+ Ajouter</button>
+        </div>
+        <div id="npcs-list" style="margin-top:16px;">
+          <p class="text-muted text-sm">Aucun PNJ. Cliquez sur "+ Ajouter" pour créer le premier.</p>
+        </div>
+      </div>
+
+      <!-- Section: Chapitres -->
+      <div class="editor-section" id="section-chapitres">
+        <div class="section-header">
+          <div>
+            <h2 class="editor-section-title">Chapitres</h2>
+            <p class="editor-section-subtitle">Découpez votre histoire en chapitres, un par séance ou arc narratif.</p>
+          </div>
+          <button class="btn btn-primary" onclick="openChapterModal()">+ Ajouter</button>
+        </div>
+        <div id="chapters-list" style="margin-top:16px;">
+          <p class="text-muted text-sm">Aucun chapitre. Cliquez sur "+ Ajouter" pour créer le premier.</p>
+        </div>
+      </div>
+
+      <!-- Section: Médiathèque -->
+      <div class="editor-section" id="section-media">
+        <div class="section-header">
+          <div>
+            <h2 class="editor-section-title">Médiathèque</h2>
+            <p class="editor-section-subtitle">Cartes et musiques disponibles pour vos chapitres.</p>
+          </div>
+        </div>
+
+        <div class="form-row" style="margin-top:16px;">
+          <div class="dropzone" id="dropzone-map" onclick="document.getElementById('input-map').click()">
+            <div class="dropzone-icon">🗺</div>
+            <div>Déposer ou choisir une carte</div>
+            <div class="dropzone-hint">PNG, JPEG, WebP — 8 Mo max</div>
+            <input type="file" id="input-map" accept="image/png,image/jpeg,image/webp" style="display:none;">
+          </div>
+          <div class="dropzone" id="dropzone-music" onclick="document.getElementById('input-music').click()">
+            <div class="dropzone-icon">🎵</div>
+            <div>Déposer ou choisir une musique</div>
+            <div class="dropzone-hint">MP3, OGG, WAV — 30 Mo max</div>
+            <input type="file" id="input-music" accept="audio/mpeg,audio/mp3,audio/ogg,audio/wav" style="display:none;">
+          </div>
+        </div>
+
+        <h3 style="margin-top:28px;margin-bottom:0;">🗺 Cartes</h3>
+        <div class="media-grid" id="media-grid-map"></div>
+
+        <h3 style="margin-top:28px;margin-bottom:0;">🎵 Musiques</h3>
+        <div class="media-grid" id="media-grid-music"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Save bar -->
+  <div class="save-bar">
+    <span class="save-status" id="save-status">Non enregistré</span>
+    <div class="save-actions">
+      <a href="/" class="btn btn-ghost">Annuler</a>
+      <button class="btn btn-primary" onclick="saveInfos()">💾 Enregistrer les informations</button>
+    </div>
+  </div>
+
+  <!-- NPC Modal -->
+  <div class="modal-overlay" id="npc-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title" id="npc-modal-title">Nouveau PNJ</h3>
+        <button class="modal-close" onclick="closeNpcModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="tabs">
+          <button class="tab-btn active" data-tab="npc-identity">Identité</button>
+          <button class="tab-btn" data-tab="npc-stats">Statistiques</button>
+          <button class="tab-btn" data-tab="npc-skills">Compétences</button>
+        </div>
+
+        <div class="tab-panel active" id="tab-npc-identity">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Nom *</label>
+              <input type="text" class="form-input" id="npc-name" placeholder="Le Marchand">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Icône (emoji, repli si pas d'image)</label>
+              <input type="text" class="form-input" id="npc-icon" placeholder="🧝" maxlength="4" style="font-size:1.5rem;text-align:center;">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Token (image)</label>
+            <div style="display:flex;align-items:center;gap:12px;">
+              <div class="token-upload-preview" id="npc-token-preview" onclick="document.getElementById('npc-token-input').click()" title="Choisir une image">➕</div>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('npc-token-input').click()">Choisir une image</button>
+              <input type="file" id="npc-token-input" accept="image/png,image/jpeg,image/webp" style="display:none;" onchange="onNpcTokenSelected(this.files[0])">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Rôle</label>
+              <input type="text" class="form-input" id="npc-role" placeholder="Ex: Marchand d'objets rares">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Disposition</label>
+              <select class="form-select" id="npc-disposition">
+                <option value="allie">Allié</option>
+                <option value="neutre" selected>Neutre</option>
+                <option value="hostile">Hostile</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Description / notes MJ</label>
+            <textarea class="form-textarea" id="npc-backstory" rows="4" placeholder="Motivations, secrets, historique..."></textarea>
+          </div>
+        </div>
+
+        <div class="tab-panel" id="tab-npc-stats">
+          <p class="text-sm text-muted" style="margin-bottom:16px;">Statistiques pour la résolution de jets/combats (mêmes statistiques que celles définies pour les joueurs, dans l'onglet Informations).</p>
+          <div class="stats-grid" id="npc-stats-grid"></div>
+        </div>
+
+        <div class="tab-panel" id="tab-npc-skills">
+          <div style="margin-bottom:24px;">
+            <div class="section-header" style="margin-bottom:10px;">
+              <div><h4>Compétences visibles</h4></div>
+              <button class="btn btn-secondary btn-sm" onclick="addNpcSkill('visible')">+ Ajouter</button>
+            </div>
+            <div id="npc-visible-skills-list"></div>
+          </div>
+          <div>
+            <div class="section-header" style="margin-bottom:10px;">
+              <div><h4>Compétences cachées</h4></div>
+              <button class="btn btn-secondary btn-sm" onclick="addNpcSkill('hidden')">+ Ajouter</button>
+            </div>
+            <div id="npc-hidden-skills-list"></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeNpcModal()">Annuler</button>
+        <button class="btn btn-primary" onclick="saveNpc()">Enregistrer le PNJ</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chapter Modal -->
+  <div class="modal-overlay" id="chapter-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title" id="chapter-modal-title">Nouveau Chapitre</h3>
+        <button class="modal-close" onclick="closeChapterModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Titre *</label>
+          <input type="text" class="form-input" id="chapter-title" placeholder="Ex: L'arrivée à Eldoria">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Notes MJ</label>
+          <textarea class="form-textarea" id="chapter-notes" rows="6" placeholder="Déroulé, secrets, points clés de ce chapitre..."></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">PNJ impliqués</label>
+          <div id="chapter-npcs-list" class="text-sm text-muted">Aucun PNJ créé pour l'instant.</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Médias liés</label>
+          <div id="chapter-media-list" class="text-sm text-muted">Aucun média disponible pour l'instant.</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeChapterModal()">Annuler</button>
+        <button class="btn btn-primary" onclick="saveChapter()">Enregistrer le chapitre</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-container" id="toast-container"></div>
+
+  <script>
+    // ─── Auth ────────────────────────────────────────
+    async function checkAuth() {
+      const res = await fetch('/api/auth/me');
+      if (!res.ok) { window.location.href = '/login'; return null; }
+      return res.json();
+    }
+    document.getElementById('logout-btn').addEventListener('click', async () => {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      window.location.href = '/login';
+    });
+
+    // ─── State ───────────────────────────────────────
+    const DEFAULT_STAT_DEFINITIONS = [
+      { key: 'pointsDeVie', label: 'Points de vie' },
+      { key: 'force', label: 'Force' },
+      { key: 'persuasion', label: 'Persuasion' },
+      { key: 'perception', label: 'Perception' },
+      { key: 'dexterite', label: 'Dextérité' },
+      { key: 'intelligence', label: 'Intelligence' },
+      { key: 'sagesse', label: 'Sagesse' },
+      { key: 'constitution', label: 'Constitution' },
+      { key: 'charisme', label: 'Charisme' }
+    ];
+
+    let roleplaysId = null;
+    let inviteCode = null;
+    let npcs = [];
+    let chapters = [];
+    let statDefinitions = DEFAULT_STAT_DEFINITIONS.map(d => ({ ...d }));
+    let editingNpcId = null;
+    let editingChapterId = null;
+
+    const pathParts = window.location.pathname.split('/');
+    const rpIdFromUrl = pathParts[2];
+
+    (async () => {
+      const me = await checkAuth();
+      if (!me) return;
+      if (rpIdFromUrl) {
+        document.getElementById('page-title').textContent = 'Modifier l\'Aventure';
+        await loadExisting(rpIdFromUrl);
+      } else {
+        renderStatDefinitions();
+      }
+    })();
+
+    async function loadExisting(id) {
+      const res = await fetch(`/api/roleplays/${id}`);
+      if (!res.ok) { showToast('Aventure introuvable', 'error'); return; }
+      const rp = await res.json();
+      roleplaysId = rp.id;
+      inviteCode = rp.inviteCode;
+      document.getElementById('rp-name').value = rp.name || '';
+      document.getElementById('rp-description').value = rp.description || '';
+      document.getElementById('rp-color').value = rp.themeColor || '#8B6914';
+      document.getElementById('rp-color-text').value = rp.themeColor || '#8B6914';
+      document.getElementById('rp-max-players').value = rp.maxPlayers || 10;
+      document.getElementById('rp-point-budget').value = rp.pointBudget || 30;
+      document.getElementById('theme-preview').style.background = rp.themeColor || '#8B6914';
+      statDefinitions = (rp.statDefinitions && rp.statDefinitions.length) ? rp.statDefinitions.map(d => ({ ...d })) : [];
+      renderStatDefinitions();
+      unlockTabs();
+      showInviteLink();
+      document.getElementById('save-status').textContent = 'Chargé';
+      await Promise.all([loadNpcs(), loadChapters(), loadMedia()]);
+    }
+
+    function unlockTabs() {
+      document.querySelectorAll('.editor-nav-item.locked').forEach(el => el.classList.remove('locked'));
+    }
+
+    function showInviteLink() {
+      if (!inviteCode) return;
+      document.getElementById('invite-link-group').style.display = '';
+      document.getElementById('invite-code-display').textContent = inviteCode;
+    }
+
+    function copyInviteLink() {
+      const url = `${window.location.origin}/adventure/${inviteCode}`;
+      navigator.clipboard.writeText(url).then(() => showToast('Lien copié !', 'success'));
+    }
+
+    // ─── Statistiques des personnages ─────────────────
+    function renderStatDefinitions() {
+      const list = document.getElementById('stat-definitions-list');
+      if (statDefinitions.length === 0) {
+        list.innerHTML = '<p class="text-muted text-sm">Aucune statistique — les joueurs n\'auront aucune stat à renseigner.</p>';
+        return;
+      }
+      list.innerHTML = statDefinitions.map((d, i) => `
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+          <input type="text" class="form-input" value="${esc(d.label)}" placeholder="Nom de la statistique" oninput="renameStatDefinition(${i}, this.value)">
+          <button class="btn btn-danger btn-sm" onclick="removeStatDefinition(${i})">🗑</button>
+        </div>
+      `).join('');
+    }
+
+    function addStatDefinition() {
+      statDefinitions.push({ key: '', label: '' });
+      renderStatDefinitions();
+      const inputs = document.querySelectorAll('#stat-definitions-list input');
+      inputs[inputs.length - 1]?.focus();
+    }
+
+    function renameStatDefinition(index, value) {
+      statDefinitions[index].label = value;
+    }
+
+    function removeStatDefinition(index) {
+      statDefinitions.splice(index, 1);
+      renderStatDefinitions();
+    }
+
+    // ─── Navigation ───────────────────────────────────
+    document.querySelectorAll('.editor-nav-item').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (btn.classList.contains('locked')) {
+          showToast('Enregistrez d\'abord les informations de base.', 'error');
+          return;
+        }
+        document.querySelectorAll('.editor-nav-item').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.editor-section').forEach(s => s.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById(`section-${btn.dataset.section}`).classList.add('active');
+      });
+    });
+
+    document.getElementById('rp-color').addEventListener('input', e => {
+      document.getElementById('rp-color-text').value = e.target.value;
+      document.getElementById('theme-preview').style.background = e.target.value;
+    });
+    document.getElementById('rp-color-text').addEventListener('input', e => {
+      if (/^#[0-9a-fA-F]{6}$/.test(e.target.value)) {
+        document.getElementById('rp-color').value = e.target.value;
+        document.getElementById('theme-preview').style.background = e.target.value;
+      }
+    });
+
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const group = btn.closest('.modal-body');
+        group.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        group.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        group.querySelector(`#tab-${btn.dataset.tab}`).classList.add('active');
+      });
+    });
+
+    // ─── Informations ─────────────────────────────────
+    async function saveInfos() {
+      const name = document.getElementById('rp-name').value.trim();
+      if (!name) { showToast('Le nom de l\'aventure est requis', 'error'); return; }
+
+      const payload = {
+        type: 'aventure',
+        name,
+        description: document.getElementById('rp-description').value.trim(),
+        themeColor: document.getElementById('rp-color').value,
+        maxPlayers: parseInt(document.getElementById('rp-max-players').value) || 10,
+        pointBudget: parseInt(document.getElementById('rp-point-budget').value) || 0,
+        statDefinitions
+      };
+
+      try {
+        const res = roleplaysId
+          ? await fetch(`/api/roleplays/${roleplaysId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+          : await fetch('/api/roleplays', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+
+        if (res.status === 401) { window.location.href = '/login'; return; }
+        if (!res.ok) { const err = await res.json().catch(() => ({})); showToast(err.error || 'Erreur', 'error'); return; }
+
+        const saved = await res.json();
+        const isNew = !roleplaysId;
+        roleplaysId = saved.id;
+        inviteCode = saved.inviteCode;
+        history.replaceState(null, '', `/aventure-editor/${roleplaysId}`);
+        unlockTabs();
+        showInviteLink();
+        document.getElementById('save-status').textContent = `Enregistré à ${new Date().toLocaleTimeString()}`;
+        showToast('Informations enregistrées !', 'success');
+        if (isNew) { await Promise.all([loadNpcs(), loadChapters(), loadMedia()]); }
+      } catch {
+        showToast('Impossible de contacter le serveur.', 'error');
+      }
+    }
+
+    // ─── PNJ ─────────────────────────────────────────
+    async function loadNpcs() {
+      const res = await fetch(`/api/adventures/${roleplaysId}/npcs`);
+      if (!res.ok) return;
+      npcs = await res.json();
+      renderNpcs();
+    }
+
+    function renderNpcs() {
+      document.getElementById('npc-count-badge').textContent = npcs.length;
+      const list = document.getElementById('npcs-list');
+      if (npcs.length === 0) {
+        list.innerHTML = '<p class="text-muted text-sm">Aucun PNJ. Cliquez sur "+ Ajouter" pour créer le premier.</p>';
+        return;
+      }
+      list.innerHTML = npcs.map(n => `
+        <div class="character-item" onclick="editNpc('${n.id}')">
+          <div class="character-item-icon">${n.tokenMediaId ? `<img src="/api/adventures/${roleplaysId}/media/${n.tokenMediaId}/file" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">` : (n.icon || '❓')}</div>
+          <div class="character-item-info">
+            <div class="character-item-name">${esc(n.name)}</div>
+            <div class="character-item-title">${esc(n.role || '')} · ${n.disposition || 'neutre'}</div>
+          </div>
+          <div class="character-item-actions" onclick="event.stopPropagation()">
+            <button class="btn btn-ghost btn-sm" onclick="editNpc('${n.id}')">✏</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteNpc('${n.id}')">🗑</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    let selectedNpcTokenFile = null;
+
+    function openNpcModal() {
+      editingNpcId = null;
+      document.getElementById('npc-modal-title').textContent = 'Nouveau PNJ';
+      resetNpcForm();
+      document.getElementById('npc-modal').classList.add('open');
+    }
+
+    function editNpc(id) {
+      const n = npcs.find(x => x.id === id);
+      if (!n) return;
+      editingNpcId = id;
+      document.getElementById('npc-modal-title').textContent = `Modifier — ${n.name}`;
+      document.getElementById('npc-name').value = n.name || '';
+      document.getElementById('npc-icon').value = n.icon || '';
+      document.getElementById('npc-role').value = n.role || '';
+      document.getElementById('npc-disposition').value = n.disposition || 'neutre';
+      document.getElementById('npc-backstory').value = n.backstory || '';
+      selectedNpcTokenFile = null;
+      document.getElementById('npc-token-preview').innerHTML = n.tokenMediaId
+        ? `<img src="/api/adventures/${roleplaysId}/media/${n.tokenMediaId}/file">`
+        : (n.icon || '➕');
+      renderNpcStatsGrid(n.stats || {});
+      renderNpcSkillsList('visible', n.visibleSkills || []);
+      renderNpcSkillsList('hidden', n.hiddenSkills || []);
+      document.getElementById('npc-modal').classList.add('open');
+    }
+
+    function onNpcTokenSelected(file) {
+      if (!file) return;
+      selectedNpcTokenFile = file;
+      document.getElementById('npc-token-preview').innerHTML = `<img src="${URL.createObjectURL(file)}">`;
+    }
+
+    function closeNpcModal() { document.getElementById('npc-modal').classList.remove('open'); }
+
+    function renderNpcStatsGrid(values) {
+      const grid = document.getElementById('npc-stats-grid');
+      if (statDefinitions.length === 0) {
+        grid.innerHTML = '<p class="text-muted text-sm">Aucune statistique définie pour cette aventure (voir l\'onglet Informations).</p>';
+        return;
+      }
+      grid.innerHTML = statDefinitions.map(def => `
+        <div class="stat-input-group">
+          <label class="stat-label">${esc(def.label)}</label>
+          <input type="number" class="stat-input npc-stat-input" data-stat="${def.key}" value="${values?.[def.key] ?? 5}" min="0">
+        </div>
+      `).join('');
+    }
+
+    function collectNpcStats() {
+      const stats = {};
+      document.querySelectorAll('.npc-stat-input').forEach(input => {
+        stats[input.dataset.stat] = parseInt(input.value) || 0;
+      });
+      return stats;
+    }
+
+    function resetNpcForm() {
+      document.getElementById('npc-name').value = '';
+      document.getElementById('npc-icon').value = '';
+      document.getElementById('npc-role').value = '';
+      document.getElementById('npc-disposition').value = 'neutre';
+      document.getElementById('npc-backstory').value = '';
+      selectedNpcTokenFile = null;
+      document.getElementById('npc-token-preview').innerHTML = '➕';
+      renderNpcStatsGrid({});
+      renderNpcSkillsList('visible', []);
+      renderNpcSkillsList('hidden', []);
+    }
+
+    function renderNpcSkillsList(type, skills) {
+      const container = document.getElementById(`npc-${type}-skills-list`);
+      container.innerHTML = skills.map((s, i) => `
+        <div class="skill-item" id="npc-${type}-skill-${i}">
+          <div class="skill-item-inputs">
+            <div style="display:flex;gap:8px;">
+              <input type="text" class="form-input" placeholder="Nom" value="${esc(s.name || '')}" data-type="${type}" data-field="name" data-index="${i}" style="flex:1;">
+              <input type="number" class="form-input" placeholder="Dé" value="${s.diceSides || 6}" data-type="${type}" data-field="dice" data-index="${i}" min="2" max="1000" style="width:70px;" title="Taille du dé de compétence (1d100 + 1dX)">
+            </div>
+            <input type="text" class="form-input" placeholder="Description" value="${esc(s.description || '')}" data-type="${type}" data-field="desc" data-index="${i}">
+          </div>
+          <button class="skill-remove" onclick="removeNpcSkill('${type}', ${i})">✕</button>
+        </div>
+      `).join('');
+    }
+
+    function addNpcSkill(type) {
+      const container = document.getElementById(`npc-${type}-skills-list`);
+      const index = container.querySelectorAll('.skill-item').length;
+      const div = document.createElement('div');
+      div.className = 'skill-item';
+      div.id = `npc-${type}-skill-${index}`;
+      div.innerHTML = `
+        <div class="skill-item-inputs">
+          <div style="display:flex;gap:8px;">
+            <input type="text" class="form-input" placeholder="Nom" data-type="${type}" data-field="name" data-index="${index}" style="flex:1;">
+            <input type="number" class="form-input" placeholder="Dé" value="6" data-type="${type}" data-field="dice" data-index="${index}" min="2" max="1000" style="width:70px;">
+          </div>
+          <input type="text" class="form-input" placeholder="Description" data-type="${type}" data-field="desc" data-index="${index}">
+        </div>
+        <button class="skill-remove" onclick="removeNpcSkill('${type}', ${index})">✕</button>
+      `;
+      container.appendChild(div);
+    }
+
+    function removeNpcSkill(type, index) {
+      document.getElementById(`npc-${type}-skill-${index}`)?.remove();
+      const container = document.getElementById(`npc-${type}-skills-list`);
+      container.querySelectorAll('.skill-item').forEach((item, i) => {
+        item.id = `npc-${type}-skill-${i}`;
+        item.querySelectorAll('[data-index]').forEach(el => el.dataset.index = i);
+        item.querySelector('.skill-remove').setAttribute('onclick', `removeNpcSkill('${type}', ${i})`);
+      });
+    }
+
+    function collectNpcSkills(type) {
+      const container = document.getElementById(`npc-${type}-skills-list`);
+      const skills = [];
+      container.querySelectorAll('.skill-item').forEach((item, i) => {
+        const name = item.querySelector('[data-field="name"]')?.value?.trim();
+        const desc = item.querySelector('[data-field="desc"]')?.value?.trim();
+        const diceSides = parseInt(item.querySelector('[data-field="dice"]')?.value) || 6;
+        if (name) skills.push({ id: slugify(name) + '_' + i, name, description: desc || '', diceSides });
+      });
+      return skills;
+    }
+
+    async function saveNpc() {
+      const name = document.getElementById('npc-name').value.trim();
+      if (!name) { showToast('Le nom est requis', 'error'); return; }
+
+      const payload = {
+        name,
+        icon: document.getElementById('npc-icon').value.trim() || '❓',
+        role: document.getElementById('npc-role').value.trim(),
+        disposition: document.getElementById('npc-disposition').value,
+        backstory: document.getElementById('npc-backstory').value.trim(),
+        stats: collectNpcStats(),
+        visibleSkills: collectNpcSkills('visible'),
+        hiddenSkills: collectNpcSkills('hidden')
+      };
+
+      const url = editingNpcId ? `/api/adventures/${roleplaysId}/npcs/${editingNpcId}` : `/api/adventures/${roleplaysId}/npcs`;
+      const method = editingNpcId ? 'PUT' : 'POST';
+      const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      if (!res.ok) { showToast('Erreur lors de l\'enregistrement du PNJ', 'error'); return; }
+      const savedNpc = await res.json();
+
+      if (selectedNpcTokenFile) {
+        await uploadNpcToken(savedNpc.id, selectedNpcTokenFile);
+      }
+
+      closeNpcModal();
+      showToast('PNJ enregistré !', 'success');
+      await loadNpcs();
+    }
+
+    async function uploadNpcToken(npcId, file) {
+      const formData = new FormData();
+      formData.append('file', file);
+      try {
+        const res = await fetch(`/api/adventures/${roleplaysId}/npcs/${npcId}/token`, { method: 'POST', body: formData });
+        if (!res.ok) { showToast('Erreur lors de l\'upload du token', 'error'); }
+      } catch {
+        showToast('Impossible de contacter le serveur.', 'error');
+      }
+    }
+
+    async function deleteNpc(id) {
+      if (!confirm('Supprimer ce PNJ ?')) return;
+      const res = await fetch(`/api/adventures/${roleplaysId}/npcs/${id}`, { method: 'DELETE' });
+      if (!res.ok) { showToast('Erreur lors de la suppression', 'error'); return; }
+      showToast('PNJ supprimé', 'success');
+      await loadNpcs();
+    }
+
+    // ─── Chapitres ────────────────────────────────────
+    async function loadChapters() {
+      const res = await fetch(`/api/adventures/${roleplaysId}/chapters`);
+      if (!res.ok) return;
+      chapters = await res.json();
+      renderChapters();
+    }
+
+    function renderChapters() {
+      document.getElementById('chapter-count-badge').textContent = chapters.length;
+      const list = document.getElementById('chapters-list');
+      if (chapters.length === 0) {
+        list.innerHTML = '<p class="text-muted text-sm">Aucun chapitre. Cliquez sur "+ Ajouter" pour créer le premier.</p>';
+        return;
+      }
+      list.innerHTML = chapters.map((c, i) => `
+        <div class="step-item" style="align-items:center;">
+          <div class="step-number">${i + 1}</div>
+          <div style="flex:1;cursor:pointer;" onclick="editChapter('${c.id}')">
+            <strong>${esc(c.title)}</strong>
+            ${c.isCurrent ? '<span class="badge badge-gold chapter-current-badge">Actuel</span>' : ''}
+            <div class="text-sm text-muted">${(c.npcIds?.length || 0)} PNJ · ${(c.mediaIds?.length || 0)} médias</div>
+          </div>
+          ${!c.isCurrent ? `<button class="btn btn-secondary btn-sm" onclick="setCurrentChapter('${c.id}')">Définir actuel</button>` : ''}
+          <button class="btn btn-ghost btn-sm" onclick="editChapter('${c.id}')">✏</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteChapter('${c.id}')">🗑</button>
+        </div>
+      `).join('');
+    }
+
+    function renderChapterNpcCheckboxes(selectedIds) {
+      const container = document.getElementById('chapter-npcs-list');
+      if (npcs.length === 0) {
+        container.innerHTML = 'Aucun PNJ créé pour l\'instant.';
+        return;
+      }
+      container.innerHTML = npcs.map(n => `
+        <label style="display:flex;align-items:center;gap:8px;margin-bottom:6px;cursor:pointer;">
+          <input type="checkbox" value="${n.id}" ${selectedIds.includes(n.id) ? 'checked' : ''}>
+          <span>${n.icon || '❓'} ${esc(n.name)}</span>
+        </label>
+      `).join('');
+    }
+
+    function renderChapterMediaCheckboxes(selectedIds) {
+      const container = document.getElementById('chapter-media-list');
+      if (mediaList.length === 0) {
+        container.innerHTML = 'Aucun média disponible pour l\'instant.';
+        return;
+      }
+      container.innerHTML = mediaList.map(m => `
+        <label style="display:flex;align-items:center;gap:8px;margin-bottom:6px;cursor:pointer;">
+          <input type="checkbox" value="${m.id}" ${selectedIds.includes(m.id) ? 'checked' : ''}>
+          <span>${m.kind === 'map' ? '🗺' : '🎵'} ${esc(m.originalName)}</span>
+        </label>
+      `).join('');
+    }
+
+    function openChapterModal() {
+      editingChapterId = null;
+      document.getElementById('chapter-modal-title').textContent = 'Nouveau Chapitre';
+      document.getElementById('chapter-title').value = '';
+      document.getElementById('chapter-notes').value = '';
+      renderChapterNpcCheckboxes([]);
+      renderChapterMediaCheckboxes([]);
+      document.getElementById('chapter-modal').classList.add('open');
+    }
+
+    function editChapter(id) {
+      const c = chapters.find(x => x.id === id);
+      if (!c) return;
+      editingChapterId = id;
+      document.getElementById('chapter-modal-title').textContent = `Modifier — ${c.title}`;
+      document.getElementById('chapter-title').value = c.title || '';
+      document.getElementById('chapter-notes').value = c.gmNotes || '';
+      renderChapterNpcCheckboxes(c.npcIds || []);
+      renderChapterMediaCheckboxes(c.mediaIds || []);
+      document.getElementById('chapter-modal').classList.add('open');
+    }
+
+    function closeChapterModal() { document.getElementById('chapter-modal').classList.remove('open'); }
+
+    async function saveChapter() {
+      const title = document.getElementById('chapter-title').value.trim();
+      if (!title) { showToast('Le titre est requis', 'error'); return; }
+      const npcIds = [...document.querySelectorAll('#chapter-npcs-list input[type="checkbox"]:checked')].map(i => i.value);
+      const mediaIds = [...document.querySelectorAll('#chapter-media-list input[type="checkbox"]:checked')].map(i => i.value);
+
+      const payload = { title, gmNotes: document.getElementById('chapter-notes').value.trim(), npcIds, mediaIds };
+      const url = editingChapterId ? `/api/adventures/${roleplaysId}/chapters/${editingChapterId}` : `/api/adventures/${roleplaysId}/chapters`;
+      const method = editingChapterId ? 'PUT' : 'POST';
+      const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      if (!res.ok) { showToast('Erreur lors de l\'enregistrement du chapitre', 'error'); return; }
+      closeChapterModal();
+      showToast('Chapitre enregistré !', 'success');
+      await loadChapters();
+    }
+
+    async function deleteChapter(id) {
+      if (!confirm('Supprimer ce chapitre ?')) return;
+      const res = await fetch(`/api/adventures/${roleplaysId}/chapters/${id}`, { method: 'DELETE' });
+      if (!res.ok) { showToast('Erreur lors de la suppression', 'error'); return; }
+      showToast('Chapitre supprimé', 'success');
+      await loadChapters();
+    }
+
+    async function setCurrentChapter(id) {
+      const res = await fetch(`/api/adventures/${roleplaysId}/chapters/${id}/set-current`, { method: 'POST' });
+      if (!res.ok) { showToast('Erreur', 'error'); return; }
+      showToast('Chapitre actuel mis à jour', 'success');
+      await loadChapters();
+    }
+
+    // ─── Médiathèque ──────────────────────────────────
+    let mediaList = [];
+
+    document.getElementById('input-map').addEventListener('change', e => uploadMedia('map', e.target.files[0]));
+    document.getElementById('input-music').addEventListener('change', e => uploadMedia('music', e.target.files[0]));
+
+    ['map', 'music'].forEach(kind => {
+      const zone = document.getElementById(`dropzone-${kind}`);
+      zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
+      zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+      zone.addEventListener('drop', e => {
+        e.preventDefault();
+        zone.classList.remove('dragover');
+        const file = e.dataTransfer.files[0];
+        if (file) uploadMedia(kind, file);
+      });
+    });
+
+    async function uploadMedia(kind, file) {
+      if (!file) return;
+      const formData = new FormData();
+      formData.append('file', file);
+      try {
+        const res = await fetch(`/api/adventures/${roleplaysId}/media/${kind}`, { method: 'POST', body: formData });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) { showToast(data.error || 'Erreur lors de l\'upload', 'error'); return; }
+        showToast('Média ajouté !', 'success');
+        await loadMedia();
+      } catch {
+        showToast('Impossible de contacter le serveur.', 'error');
+      }
+    }
+
+    async function loadMedia() {
+      const res = await fetch(`/api/adventures/${roleplaysId}/media`);
+      if (!res.ok) return;
+      mediaList = await res.json();
+      renderMedia();
+    }
+
+    function renderMedia() {
+      const maps = mediaList.filter(m => m.kind === 'map');
+      const music = mediaList.filter(m => m.kind === 'music');
+
+      document.getElementById('media-grid-map').innerHTML = maps.length
+        ? maps.map(renderMediaTile).join('')
+        : '<p class="text-muted text-sm">Aucune carte pour l\'instant.</p>';
+
+      document.getElementById('media-grid-music').innerHTML = music.length
+        ? music.map(renderMediaTile).join('')
+        : '<p class="text-muted text-sm">Aucune musique pour l\'instant.</p>';
+    }
+
+    function renderMediaTile(m) {
+      const fileUrl = `/api/adventures/${roleplaysId}/media/${m.id}/file`;
+      const preview = m.kind === 'map'
+        ? `<img class="media-tile-thumb" src="${fileUrl}" alt="${esc(m.originalName)}">`
+        : `<div class="media-tile-icon">🎵</div>`;
+      return `
+        <div class="media-tile">
+          ${preview}
+          <div class="media-tile-name" title="${esc(m.originalName)}">${esc(m.originalName)}</div>
+          <div class="media-tile-meta">${(m.size / 1024).toFixed(0)} Ko</div>
+          <div class="media-tile-actions">
+            <button class="btn btn-danger btn-sm" onclick="deleteMedia('${m.id}')">🗑 Supprimer</button>
+          </div>
+        </div>
+      `;
+    }
+
+    async function deleteMedia(id) {
+      if (!confirm('Supprimer ce média ?')) return;
+      const res = await fetch(`/api/adventures/${roleplaysId}/media/${id}`, { method: 'DELETE' });
+      if (!res.ok) { showToast('Erreur lors de la suppression', 'error'); return; }
+      showToast('Média supprimé', 'success');
+      await loadMedia();
+    }
+
+    // ─── Utils ───────────────────────────────────────
+    function slugify(str) {
+      return str.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+    }
+    function esc(s) {
+      return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+    function showToast(msg, type = 'info') {
+      const c = document.getElementById('toast-container');
+      const t = document.createElement('div');
+      t.className = `toast ${type}`;
+      t.textContent = msg;
+      c.appendChild(t);
+      setTimeout(() => t.remove(), 3200);
+    }
+
+    document.getElementById('npc-modal').addEventListener('click', e => {
+      if (e.target === document.getElementById('npc-modal')) closeNpcModal();
+    });
+    document.getElementById('chapter-modal').addEventListener('click', e => {
+      if (e.target === document.getElementById('chapter-modal')) closeChapterModal();
+    });
+  </script>
+</body>
+</html>

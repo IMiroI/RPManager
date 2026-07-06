@@ -100,7 +100,9 @@
       </a>
       <div style="display:flex;align-items:center;gap:12px;">
         <span id="page-title" class="text-muted text-sm">Nouveau Roleplay</span>
+        <span id="type-badge" class="badge badge-accent"></span>
         <a href="/" class="btn btn-ghost btn-sm">← Retour</a>
+        <button class="btn btn-ghost btn-sm" id="logout-btn">Déconnexion</button>
       </div>
     </div>
   </header>
@@ -308,37 +310,56 @@
   <div class="toast-container" id="toast-container"></div>
 
   <script>
-    const LS_KEY = 'rpmanager_roleplays';
+    // ─── Auth ────────────────────────────────────────
+    async function checkAuth() {
+      const res = await fetch('/api/auth/me');
+      if (!res.ok) { window.location.href = '/login'; return null; }
+      return res.json();
+    }
 
-    // ─── localStorage helpers ────────────────────────
-    function lsGet() {
-      try { return JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch { return {}; }
-    }
-    function lsSave(rp) {
-      const data = lsGet();
-      data[rp.id] = rp;
-      localStorage.setItem(LS_KEY, JSON.stringify(data));
-    }
+    document.getElementById('logout-btn').addEventListener('click', async () => {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      window.location.href = '/login';
+    });
 
     // ─── State ───────────────────────────────────────
     let characters = [];
     let scenarioSteps = [];
     let editingCharIndex = -1;
     let roleplaysId = null;
+    let roleplayCreatedAt = null;
+    let roleplayType = 'oneshot';
+
+    const TYPE_LABELS = { oneshot: '🎬 OneShot', aventure: '📖 Aventure' };
+    function renderTypeBadge() {
+      document.getElementById('type-badge').textContent = TYPE_LABELS[roleplayType] || TYPE_LABELS.oneshot;
+    }
 
     // ─── Init ────────────────────────────────────────
     const pathParts = window.location.pathname.split('/');
     const rpIdFromUrl = pathParts[2];
+    const typeFromUrl = new URLSearchParams(window.location.search).get('type');
+    if (typeFromUrl === 'aventure') roleplayType = 'aventure';
 
-    if (rpIdFromUrl) {
-      document.getElementById('page-title').textContent = 'Modifier le Roleplay';
-      loadExisting(rpIdFromUrl);
-    }
+    (async () => {
+      const me = await checkAuth();
+      if (!me) return;
+      if (rpIdFromUrl) {
+        document.getElementById('page-title').textContent = 'Modifier le Roleplay';
+        loadExisting(rpIdFromUrl);
+      } else {
+        renderTypeBadge();
+      }
+    })();
 
-    function loadExisting(id) {
-      const rp = lsGet()[id];
-      if (!rp) { showToast('Roleplay introuvable', 'error'); return; }
+    async function loadExisting(id) {
+      const res = await fetch(`/api/roleplays/${id}`);
+      if (!res.ok) { showToast('Roleplay introuvable', 'error'); return; }
+      const rp = await res.json();
       roleplaysId = rp.id;
+      roleplayCreatedAt = rp.createdAt;
+      roleplayType = rp.type || 'oneshot';
+      renderTypeBadge();
       document.getElementById('rp-name').value = rp.name || '';
       document.getElementById('rp-description').value = rp.description || '';
       document.getElementById('rp-color').value = rp.themeColor || '#8B6914';
@@ -622,7 +643,7 @@
     }
 
     // ─── Save ────────────────────────────────────────
-    function saveRoleplay() {
+    async function saveRoleplay() {
       const name = document.getElementById('rp-name').value.trim();
       if (!name) {
         showToast('Le nom de l\'aventure est requis', 'error');
@@ -638,25 +659,46 @@
         return { id: step.id || 'step_' + i, title, details };
       }).filter(s => s.title);
 
-      const now = new Date().toISOString();
-      if (!roleplaysId) roleplaysId = slugify(name) || ('rp_' + Date.now());
-
       const roleplay = {
-        id: roleplaysId,
+        type: roleplayType,
         name,
         description: document.getElementById('rp-description').value.trim(),
         themeColor: document.getElementById('rp-color').value,
         maxPlayers: parseInt(document.getElementById('rp-max-players').value) || 10,
         characters,
-        scenarioSteps: stepsFromDom,
-        createdAt: lsGet()[roleplaysId]?.createdAt || now,
-        updatedAt: now
+        scenarioSteps: stepsFromDom
       };
 
-      lsSave(roleplay);
-      history.replaceState(null, '', `/editor/${roleplaysId}`);
-      document.getElementById('save-status').textContent = `Enregistré à ${new Date().toLocaleTimeString()}`;
-      showToast('Roleplay enregistré !', 'success');
+      try {
+        const res = roleplaysId
+          ? await fetch(`/api/roleplays/${roleplaysId}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(roleplay)
+            })
+          : await fetch('/api/roleplays', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(roleplay)
+            });
+
+        if (res.status === 401) { window.location.href = '/login'; return; }
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          showToast(err.error || 'Erreur lors de l\'enregistrement', 'error');
+          return;
+        }
+
+        const saved = await res.json();
+        roleplaysId = saved.id;
+        roleplayCreatedAt = saved.createdAt;
+        history.replaceState(null, '', `/editor/${roleplaysId}`);
+        document.getElementById('save-status').textContent = `Enregistré à ${new Date().toLocaleTimeString()}`;
+        showToast('Roleplay enregistré !', 'success');
+      } catch {
+        showToast('Impossible de contacter le serveur.', 'error');
+      }
     }
 
     // ─── Utils ───────────────────────────────────────
