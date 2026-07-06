@@ -109,10 +109,28 @@
   <div class="gm-live-layout">
     <div class="gm-stage">
       <div class="gm-stage-inner" id="gm-stage-container">
-        <div id="gm-stage-media">
-          <p class="text-muted text-sm">Aucune image affichée. Choisissez un chapitre puis une image à droite.</p>
+        <div class="stage-scroll" id="gm-stage-scroll">
+          <div class="zoom-content" id="gm-zoom-content">
+            <div id="gm-stage-media">
+              <p class="text-muted text-sm">Aucune image affichée. Choisissez un chapitre puis une image à droite.</p>
+            </div>
+            <div class="map-grid-overlay" id="gm-grid-overlay" style="display:none;"></div>
+            <div class="token-layer" id="gm-token-layer"></div>
+          </div>
         </div>
-        <div class="token-layer" id="gm-token-layer"></div>
+        <div class="token-badges-bar" id="gm-token-badges" style="display:none;"></div>
+        <div style="position:absolute;top:8px;right:8px;z-index:5;display:flex;align-items:center;gap:8px;">
+          <div class="grid-size-control" title="Zoom de la carte (local, n'affecte pas les autres)">
+            <span>🔍</span>
+            <input type="range" id="zoom-slider" min="50" max="300" value="100" oninput="onZoomInput(this.value)">
+            <span id="zoom-label">100%</span>
+          </div>
+          <div class="grid-size-control" title="Taille des cases de la grille">
+            <span>⛶</span>
+            <input type="range" id="grid-size-slider" min="5" max="60" value="20" oninput="onGridSizeInput(this.value)">
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" id="grid-toggle-btn" onclick="toggleGrid()">🔲 Grille</button>
+        </div>
       </div>
       <audio id="gm-stage-audio" controls style="width:100%;margin-top:12px;display:none;"></audio>
     </div>
@@ -220,6 +238,9 @@
     socket.on('adv:gm:state', (state) => {
       gmState = state;
       renderAll();
+      // La médiathèque peut avoir changé (upload/suppression) depuis l'éditeur, dans un autre onglet —
+      // on la rafraîchit à chaque état pour ne jamais afficher une liste de médias périmée.
+      loadMedia();
     });
 
     socket.on('adv:gm:diceResult', (result) => {
@@ -242,7 +263,21 @@
       showToast(`🎲 ${result.characterName} — ${result.skillName} : ${result.percentile} / d${result.diceSides}=${result.skillRoll}`, 'info');
     });
 
-    socket.on('adv:token:position', ({ characterId, x, y }) => updateTokenPosition(characterId, x, y));
+    socket.on('adv:token:position', ({ characterId, kind, x, y, final }) => updateTokenPosition(characterId, kind, x, y, final));
+
+    socket.on('adv:token:rotated', ({ characterId, rotation }) => {
+      const existing = currentTokenPositions.find(p => p.characterId === characterId);
+      if (existing) existing.rotation = rotation;
+      const el = document.querySelector(`#gm-token-layer .token[data-character-id="${characterId}"]`);
+      if (el) el.style.transform = `translate(-50%,-50%) rotate(${rotation}deg)`;
+    });
+
+    socket.on('adv:token:removed', ({ characterId }) => {
+      currentTokenPositions = currentTokenPositions.filter(p => p.characterId !== characterId);
+      if (selectedToken && selectedToken.characterId === characterId) selectedToken = null;
+      renderTokens(currentTokenPositions);
+      renderTokenBadges();
+    });
 
     socket.on('adv:gm:playerMessage', ({ characterId, name, message }) => {
       if (openMsgCharacterId === characterId) {
@@ -266,6 +301,11 @@
       if (!gmState) return;
       document.getElementById('roleplay-name').textContent = gmState.roleplay?.name || '';
       document.documentElement.style.setProperty('--theme', gmState.roleplay?.themeColor);
+
+      if (gmState.roleplay?.gridSize) {
+        gridColumns = gmState.roleplay.gridSize;
+        document.getElementById('grid-size-slider').value = gridColumns;
+      }
 
       const badge = document.getElementById('seance-badge');
       const btn = document.getElementById('btn-open-seance');
@@ -291,16 +331,70 @@
     }
 
     let currentMediaId = null;
+    let gridVisible = localStorage.getItem('adv_grid_visible') !== 'false';
+    let gridColumns = 20;
+    let cellPx = 40;
+
+    function toggleGrid() {
+      gridVisible = !gridVisible;
+      localStorage.setItem('adv_grid_visible', gridVisible);
+      updateGridOverlay();
+    }
+
+    function updateGridOverlay() {
+      document.getElementById('gm-grid-overlay').style.display = (gridVisible && currentMediaId) ? '' : 'none';
+    }
+
+    // Calcule la taille d'une case (carrée) à partir de la largeur réelle du plateau (zoomée) et
+    // du nombre de colonnes voulu par le MJ — les tokens sont ensuite toujours dimensionnés à 1 case.
+    function recomputeGrid() {
+      const content = document.getElementById('gm-zoom-content');
+      const rect = content.getBoundingClientRect();
+      cellPx = (currentMediaId && rect.width > 0) ? rect.width / gridColumns : 48;
+      content.style.setProperty('--cell-size', `${cellPx}px`);
+    }
+
+    function onGridSizeInput(value) {
+      gridColumns = Math.min(60, Math.max(5, parseInt(value) || 20));
+      recomputeGrid();
+      socket.emit('adv:gm:setGridSize', { roleplayId, gridSize: gridColumns });
+    }
+
+    // ─── Zoom local (uniquement côté de ce spectateur, n'affecte ni les autres ni la position
+    // enregistrée des tokens — ceux-ci restent en pourcentage, donc toujours au même endroit relatif) ───
+    let zoomLevel = 1;
+
+    function applyZoom() {
+      const outer = document.getElementById('gm-stage-container');
+      const content = document.getElementById('gm-zoom-content');
+      content.style.width = `${outer.clientWidth * zoomLevel}px`;
+      content.style.height = `${outer.clientHeight * zoomLevel}px`;
+      recomputeGrid();
+    }
+
+    function onZoomInput(value) {
+      zoomLevel = Math.min(3, Math.max(0.5, parseInt(value) / 100));
+      document.getElementById('zoom-label').textContent = `${Math.round(zoomLevel * 100)}%`;
+      applyZoom();
+    }
+
+    window.addEventListener('resize', applyZoom);
+    new ResizeObserver(applyZoom).observe(document.getElementById('gm-stage-container'));
+    applyZoom();
 
     function renderStage() {
       const media = document.getElementById('gm-stage-media');
+      const previousMediaId = currentMediaId;
       if (gmState.nowShowing) {
         currentMediaId = gmState.nowShowing.mediaId;
-        media.innerHTML = `<img id="gm-stage-image" src="/api/adventures/${roleplayId}/media/${gmState.nowShowing.mediaId}/file">`;
+        media.innerHTML = `<img id="gm-stage-image" src="/api/adventures/${roleplayId}/media/${gmState.nowShowing.mediaId}/file" onload="recomputeGrid()">`;
       } else {
         currentMediaId = null;
         media.innerHTML = '<p class="text-muted text-sm">Aucune image affichée. Choisissez un chapitre puis une image à droite.</p>';
       }
+      if (previousMediaId !== currentMediaId) selectedToken = null; // la carte a changé, la sélection précédente ne s'applique plus
+      updateGridOverlay();
+      recomputeGrid();
       renderTokens(gmState.tokenPositions || []);
 
       const audio = document.getElementById('gm-stage-audio');
@@ -317,24 +411,34 @@
     }
 
     // ─── Tokens (le MJ peut déplacer n'importe quel token) ────
+    function findTokenEntity(entityId, kind) {
+      if (kind === 'npc') return (gmState.npcs || []).find(n => n.id === entityId);
+      return (gmState.characters || []).find(ch => ch.id === entityId);
+    }
+
+    let currentTokenPositions = [];
+    let selectedToken = null; // { characterId, kind } — token sélectionné par clic, pour badges de compétences + clavier
+
     function renderTokens(positions) {
+      currentTokenPositions = positions;
       const layer = document.getElementById('gm-token-layer');
       if (!currentMediaId) { layer.innerHTML = ''; return; }
-      const characters = gmState.characters || [];
       layer.innerHTML = positions.map(p => {
-        const c = characters.find(ch => ch.id === p.characterId);
-        if (!c) return '';
-        const visual = c.tokenMediaId
-          ? `<img src="/api/adventures/${roleplayId}/media/${c.tokenMediaId}/file">`
-          : (c.icon || '❓');
+        const entity = findTokenEntity(p.characterId, p.kind);
+        if (!entity) return '';
+        const visual = entity.tokenMediaId
+          ? `<img src="/api/adventures/${roleplayId}/media/${entity.tokenMediaId}/file">`
+          : (entity.icon || '❓');
+        const selected = selectedToken && selectedToken.characterId === p.characterId ? ' selected' : '';
         return `
-          <div class="token" data-character-id="${p.characterId}" style="left:${p.x}%;top:${p.y}%;">
+          <div class="token${selected}" data-character-id="${p.characterId}" data-kind="${p.kind || 'character'}" style="left:${p.x}%;top:${p.y}%;transform:translate(-50%,-50%) rotate(${p.rotation || 0}deg);">
             ${visual}
-            <span class="token-label">${esc(c.name)}</span>
+            <span class="token-label">${esc(entity.name)}</span>
           </div>
         `;
       }).join('');
       attachTokenDragHandlers();
+      renderTokenBadges();
     }
 
     function attachTokenDragHandlers() {
@@ -344,11 +448,13 @@
     }
 
     let draggingToken = null;
+    let dragMoved = false;
 
     function onTokenPointerDown(e) {
       e.preventDefault();
       const el = e.currentTarget;
-      draggingToken = { el, characterId: el.dataset.characterId };
+      draggingToken = { el, characterId: el.dataset.characterId, kind: el.dataset.kind };
+      dragMoved = false;
       el.classList.add('dragging');
       el.setPointerCapture(e.pointerId);
       el.addEventListener('pointermove', onTokenPointerMove);
@@ -356,39 +462,164 @@
       el.addEventListener('pointercancel', onTokenPointerUp);
     }
 
+    // On mesure toujours par rapport à #gm-zoom-content (pas au conteneur extérieur fixe) : son
+    // rect reflète la taille réellement zoomée et sa position tient compte du défilement/pan
+    // éventuel, donc le calcul reste juste quel que soit le niveau de zoom local.
     function computePercentFromEvent(e) {
-      const rect = document.getElementById('gm-stage-container').getBoundingClientRect();
+      const rect = document.getElementById('gm-zoom-content').getBoundingClientRect();
       const x = Math.min(100, Math.max(0, ((e.clientX - rect.left) / rect.width) * 100));
       const y = Math.min(100, Math.max(0, ((e.clientY - rect.top) / rect.height) * 100));
       return { x, y };
     }
 
+    // Aimante en espace pixel (cases carrées de cellPx) puis reconvertit en pourcentage —
+    // nécessaire car x est un % de la largeur et y un % de la hauteur, qui diffèrent en général.
+    function snapToGrid(x, y) {
+      const rect = document.getElementById('gm-zoom-content').getBoundingClientRect();
+      if (!rect.width || !rect.height) return { x, y };
+      const snappedPxX = Math.round((x / 100) * rect.width / cellPx) * cellPx;
+      const snappedPxY = Math.round((y / 100) * rect.height / cellPx) * cellPx;
+      return {
+        x: Math.min(100, Math.max(0, (snappedPxX / rect.width) * 100)),
+        y: Math.min(100, Math.max(0, (snappedPxY / rect.height) * 100))
+      };
+    }
+
     function onTokenPointerMove(e) {
       if (!draggingToken) return;
+      dragMoved = true;
       const { x, y } = computePercentFromEvent(e);
       draggingToken.el.style.left = `${x}%`;
       draggingToken.el.style.top = `${y}%`;
-      socket.emit('adv:token:drag', { roleplayId, characterId: draggingToken.characterId, x, y });
+      socket.emit('adv:token:drag', { roleplayId, characterId: draggingToken.characterId, kind: draggingToken.kind, x, y });
     }
 
     function onTokenPointerUp(e) {
       if (!draggingToken) return;
-      const { x, y } = computePercentFromEvent(e);
-      socket.emit('adv:token:drop', { roleplayId, characterId: draggingToken.characterId, x, y });
-      draggingToken.el.classList.remove('dragging');
-      draggingToken.el.removeEventListener('pointermove', onTokenPointerMove);
-      draggingToken.el.removeEventListener('pointerup', onTokenPointerUp);
-      draggingToken.el.removeEventListener('pointercancel', onTokenPointerUp);
-      draggingToken = null;
-    }
-
-    function updateTokenPosition(characterId, x, y) {
-      const el = document.querySelector(`#gm-token-layer .token[data-character-id="${characterId}"]`);
-      if (el && draggingToken?.characterId !== characterId) {
+      const { el, characterId, kind } = draggingToken;
+      if (dragMoved) {
+        const raw = computePercentFromEvent(e);
+        const { x, y } = gridVisible ? snapToGrid(raw.x, raw.y) : raw;
         el.style.left = `${x}%`;
         el.style.top = `${y}%`;
+        socket.emit('adv:token:drop', { roleplayId, characterId, kind, x, y });
       }
+      el.classList.remove('dragging');
+      el.removeEventListener('pointermove', onTokenPointerMove);
+      el.removeEventListener('pointerup', onTokenPointerUp);
+      el.removeEventListener('pointercancel', onTokenPointerUp);
+      draggingToken = null;
+
+      // Un clic simple (sans déplacement) sélectionne/désélectionne le token.
+      if (!dragMoved && selectedToken && selectedToken.characterId === characterId) deselectToken();
+      else selectToken(characterId, kind);
     }
+
+    function updateTokenPosition(characterId, kind, x, y, final) {
+      const el = document.querySelector(`#gm-token-layer .token[data-character-id="${characterId}"]`);
+      if (!final) {
+        // Mouvement en direct : mise à jour légère si le token existe déjà, pas de re-rendu complet.
+        if (el && draggingToken?.characterId !== characterId) {
+          el.style.left = `${x}%`;
+          el.style.top = `${y}%`;
+        }
+        return;
+      }
+      // Dépôt final : peut être un tout nouveau token (jamais placé) — on met à jour le cache
+      // et on re-rend entièrement pour qu'il apparaisse, pas seulement déplacé.
+      const existing = currentTokenPositions.find(p => p.characterId === characterId);
+      if (existing) { existing.x = x; existing.y = y; existing.kind = kind; }
+      else currentTokenPositions.push({ characterId, kind, x, y, rotation: 0 });
+      renderTokens(currentTokenPositions);
+    }
+
+    // Place un token qui n'est pas encore sur la carte (position par défaut au centre)
+    function placeTokenOnMap(entityId, kind) {
+      if (!currentMediaId) { showToast('Affichez d\'abord une carte.', 'error'); return; }
+      socket.emit('adv:token:drop', { roleplayId, characterId: entityId, kind, x: 50, y: 50 });
+    }
+
+    // ─── Sélection d'un token : badges de compétences + contrôle clavier ────
+    function selectToken(characterId, kind) {
+      selectedToken = { characterId, kind };
+      renderTokens(currentTokenPositions);
+    }
+
+    function deselectToken() {
+      selectedToken = null;
+      renderTokens(currentTokenPositions);
+    }
+
+    function renderTokenBadges() {
+      const bar = document.getElementById('gm-token-badges');
+      if (!selectedToken) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
+      const entity = findTokenEntity(selectedToken.characterId, selectedToken.kind);
+      if (!entity) { selectedToken = null; bar.style.display = 'none'; bar.innerHTML = ''; return; }
+      const skills = selectedToken.kind === 'npc'
+        ? [...(entity.visibleSkills || []).map(s => ({ ...s, locked: false })), ...(entity.hiddenSkills || []).map(s => ({ ...s, locked: true }))]
+        : (entity.skills || []);
+      bar.style.display = '';
+      bar.innerHTML = `
+        <div class="token-badges-name">${esc(entity.name)}</div>
+        <div class="token-badges-hint">↑↓←→ déplacer · Ctrl+↑↓←→ pivoter · Suppr retirer de la carte</div>
+        <div class="token-badges-list">
+          ${skills.length
+            ? skills.map(s => `<button type="button" class="token-badge-chip${s.locked ? ' locked' : ''}" title="${esc(s.description || '')} — 1d100 + 1d${s.diceSides || 6}" onclick="rollBadgeSkill('${s.id}')">${s.locked ? '🔒' : '🎲'} ${esc(s.name)}</button>`).join('')
+            : '<span class="text-muted text-sm">Aucune compétence.</span>'}
+        </div>
+      `;
+    }
+
+    function rollBadgeSkill(skillId) {
+      if (!selectedToken) return;
+      socket.emit('adv:skill:roll', { roleplayId, characterId: selectedToken.characterId, kind: selectedToken.kind, skillId });
+    }
+
+    const TOKEN_MOVE_STEP = 3;
+    const TOKEN_ROTATE_STEP = 15;
+
+    document.addEventListener('keydown', (e) => {
+      if (!selectedToken) return;
+      const tag = (document.activeElement && document.activeElement.tagName) || '';
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag) || document.activeElement?.isContentEditable) return;
+      if (document.querySelector('.modal-overlay.open')) return;
+
+      const { characterId, kind } = selectedToken;
+
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault();
+        socket.emit('adv:token:remove', { roleplayId, characterId, kind });
+        deselectToken();
+        return;
+      }
+
+      const arrowDeltas = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
+      if (!(e.key in arrowDeltas)) return;
+      e.preventDefault();
+
+      const current = currentTokenPositions.find(p => p.characterId === characterId);
+      if (!current) return;
+      const el = document.querySelector(`#gm-token-layer .token[data-character-id="${characterId}"]`);
+
+      if (e.ctrlKey || e.metaKey) {
+        const dir = (e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 1 : -1;
+        current.rotation = (((current.rotation || 0) + dir * TOKEN_ROTATE_STEP) % 360 + 360) % 360;
+        if (el) el.style.transform = `translate(-50%,-50%) rotate(${current.rotation}deg)`;
+        socket.emit('adv:token:rotate', { roleplayId, characterId, kind, rotation: current.rotation });
+      } else {
+        const [dx, dy] = arrowDeltas[e.key];
+        const rect = document.getElementById('gm-zoom-content').getBoundingClientRect();
+        // Un appui déplace d'exactement 1 case si la grille est visible, sinon d'un pas fixe.
+        const stepX = gridVisible && rect.width ? (cellPx / rect.width) * 100 : TOKEN_MOVE_STEP;
+        const stepY = gridVisible && rect.height ? (cellPx / rect.height) * 100 : TOKEN_MOVE_STEP;
+        let x = Math.min(100, Math.max(0, current.x + dx * stepX));
+        let y = Math.min(100, Math.max(0, current.y + dy * stepY));
+        if (gridVisible) ({ x, y } = snapToGrid(x, y));
+        current.x = x; current.y = y;
+        if (el) { el.style.left = `${x}%`; el.style.top = `${y}%`; }
+        socket.emit('adv:token:drop', { roleplayId, characterId, kind, x, y });
+      }
+    });
 
     function renderChapters() {
       const list = document.getElementById('chapters-sidebar-list');
@@ -438,6 +669,7 @@
         </div>
       `).join('') : '<p class="text-muted text-sm">Aucune musique liée à ce chapitre.</p>';
 
+      const placedIds = new Set((gmState.tokenPositions || []).map(p => p.characterId));
       document.getElementById('chapter-npcs-list').innerHTML = npcs.length ? npcs.map(n => `
         <div class="character-item">
           <div class="character-item-icon">${n.tokenMediaId ? `<img src="/api/adventures/${roleplayId}/media/${n.tokenMediaId}/file" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">` : (n.icon || '❓')}</div>
@@ -445,6 +677,7 @@
             <div class="character-item-name">${esc(n.name)}</div>
             <div class="character-item-title">${esc(n.role || n.disposition || '')}</div>
           </div>
+          ${!placedIds.has(n.id) ? `<button class="btn btn-secondary btn-sm" onclick="placeTokenOnMap('${n.id}','npc')" title="Placer sur la carte">📍</button>` : ''}
         </div>
       `).join('') : '<p class="text-muted text-sm">Aucun PNJ lié à ce chapitre.</p>';
     }
@@ -461,6 +694,7 @@
         return;
       }
       const connectedIds = new Set(gmState.connectedPlayers.map(p => p.characterId));
+      const placedIds = new Set((gmState.tokenPositions || []).map(p => p.characterId));
       list.innerHTML = characters.map(c => `
         <div class="player-chip">
           <div class="player-chip-icon">
@@ -474,6 +708,7 @@
               💬${unreadByCharacter.get(c.id) ? `<span style="position:absolute;top:-4px;right:-4px;background:var(--danger);color:#fff;border-radius:50%;font-size:0.6rem;font-weight:800;width:15px;height:15px;display:inline-flex;align-items:center;justify-content:center;">${unreadByCharacter.get(c.id)}</span>` : ''}
             </button>
             <button class="btn btn-ghost btn-sm" onclick="openCharEditModal('${c.id}')">✏</button>
+            ${!placedIds.has(c.id) ? `<button class="btn btn-gold btn-sm" onclick="placeTokenOnMap('${c.id}','character')" title="Placer sur la carte">📍</button>` : ''}
           </div>
         </div>
       `).join('');

@@ -4,9 +4,12 @@
 const mongoose = require('mongoose');
 
 const tokenPositionSchema = new mongoose.Schema({
+  // characterId contient soit l'id d'un AdventureCharacter (kind:'character'), soit l'id d'un PNJ (kind:'npc')
   characterId: { type: String, required: true },
+  kind: { type: String, enum: ['character', 'npc'], default: 'character' },
   x: { type: Number, required: true },
-  y: { type: Number, required: true }
+  y: { type: Number, required: true },
+  rotation: { type: Number, default: 0 }
 }, { _id: false });
 
 const mediaSchema = new mongoose.Schema({

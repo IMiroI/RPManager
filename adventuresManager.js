@@ -406,22 +406,70 @@ async function listPartyMembers(roleplayId) {
   return chars.map(c => ({ id: c._id.toString(), name: c.name, icon: c.icon, tokenMediaId: c.tokenMediaId }));
 }
 
+// Vue publique des PNJ (nom/icône/token) — sans stats/compétences/notes MJ — envoyée aux joueurs
+// pour qu'ils voient les tokens des PNJ sur la carte sans révéler leurs infos.
+async function listNpcRoster(roleplayId) {
+  const doc = await Roleplay.findById(roleplayId).select('npcs').catch(() => null);
+  if (!doc) return [];
+  return (doc.npcs || []).map(n => ({ id: n.id, name: n.name, icon: n.icon, tokenMediaId: n.tokenMediaId || null }));
+}
+
 async function getMapTokenPositions(roleplayId, mediaId) {
   const media = await Media.findOne({ _id: mediaId, roleplay: roleplayId, kind: 'map' }).catch(() => null);
   return media ? media.tokenPositions : [];
 }
 
-async function setTokenPosition(roleplayId, mediaId, characterId, x, y) {
+async function setTokenPosition(roleplayId, mediaId, characterId, x, y, kind) {
   const media = await Media.findOne({ _id: mediaId, roleplay: roleplayId, kind: 'map' }).catch(() => null);
   if (!media) return null;
   const safeX = Math.min(100, Math.max(0, Number(x) || 0));
   const safeY = Math.min(100, Math.max(0, Number(y) || 0));
+  const safeKind = kind === 'npc' ? 'npc' : 'character';
   const existing = media.tokenPositions.find(p => p.characterId === characterId);
-  if (existing) { existing.x = safeX; existing.y = safeY; }
-  else media.tokenPositions.push({ characterId, x: safeX, y: safeY });
+  if (existing) { existing.x = safeX; existing.y = safeY; existing.kind = safeKind; }
+  else media.tokenPositions.push({ characterId, kind: safeKind, x: safeX, y: safeY, rotation: 0 });
   media.markModified('tokenPositions');
   await media.save();
   return media.tokenPositions;
+}
+
+async function setTokenRotation(roleplayId, mediaId, characterId, rotation) {
+  const media = await Media.findOne({ _id: mediaId, roleplay: roleplayId, kind: 'map' }).catch(() => null);
+  if (!media) return null;
+  const existing = media.tokenPositions.find(p => p.characterId === characterId);
+  if (!existing) return null;
+  existing.rotation = ((Number(rotation) || 0) % 360 + 360) % 360;
+  media.markModified('tokenPositions');
+  await media.save();
+  return media.tokenPositions;
+}
+
+async function removeTokenPosition(roleplayId, mediaId, characterId) {
+  const media = await Media.findOne({ _id: mediaId, roleplay: roleplayId, kind: 'map' }).catch(() => null);
+  if (!media) return null;
+  const before = media.tokenPositions.length;
+  media.tokenPositions = media.tokenPositions.filter(p => p.characterId !== characterId);
+  if (media.tokenPositions.length === before) return media.tokenPositions;
+  media.markModified('tokenPositions');
+  await media.save();
+  return media.tokenPositions;
+}
+
+// Nombre de colonnes de la grille tactique (carrée) — le MJ en règle la taille via un curseur,
+// les tokens sont ensuite toujours affichés à la taille d'une case (calculée côté client).
+async function setGridSize(roleplayId, ownerId, gridSize) {
+  const doc = await getOwnedAdventure(roleplayId, ownerId);
+  if (!doc) return null;
+  doc.gridSize = Math.min(60, Math.max(5, parseInt(gridSize) || 20));
+  await doc.save();
+  return doc.gridSize;
+}
+
+// Lecture d'un PNJ précis (pour le jet de compétence PNJ, réservé au MJ côté serveur)
+async function getNpcById(roleplayId, npcId) {
+  const doc = await Roleplay.findById(roleplayId).select('npcs').catch(() => null);
+  if (!doc) return null;
+  return (doc.npcs || []).find(n => n.id === npcId) || null;
 }
 
 // ─── Synchro des fiches PNJ/joueurs quand le MJ ajoute/retire une statistique ────
@@ -463,6 +511,7 @@ module.exports = {
   getCharacter, createCharacter, updateCharacterProfile,
   listCharacters, updateCharacterStatsById, updateCharacterInventoryById, updateCharacterSkillsById, appendJournalEntry, getCharacterById,
   appendPrivateMessage,
-  createCharacterToken, createNpcToken, listPartyMembers, getMapTokenPositions, setTokenPosition,
+  createCharacterToken, createNpcToken, listPartyMembers, listNpcRoster, getMapTokenPositions, setTokenPosition,
+  setTokenRotation, removeTokenPosition, getNpcById, setGridSize,
   syncStatDefinitions
 };

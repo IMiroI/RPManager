@@ -83,6 +83,23 @@
 }
 
 /* ─── Plateau de carte / tokens (façon Roll20) ──────────── */
+/* La taille des cases (--cell-size) est calculée en JS à partir du nombre de colonnes
+   choisi par le MJ et de la largeur réelle du plateau, pour obtenir des carrés (pas des
+   rectangles) quel que soit le ratio largeur/hauteur de l'image affichée. */
+/* Zoom local : #zoom-content a une largeur/hauteur explicite (posée en JS = taille du
+   conteneur × niveau de zoom) et #stage-scroll permet de défiler/paner quand elle dépasse —
+   ce zoom est purement visuel pour ce spectateur, les positions en % des tokens ne changent pas. */
+.stage-scroll { position: absolute; inset: 0; overflow: auto; }
+.zoom-content { position: relative; }
+.map-grid-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, rgba(255,255,255,0.22) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255,255,255,0.22) 1px, transparent 1px);
+  background-size: var(--cell-size, 40px) var(--cell-size, 40px);
+}
 .token-layer {
   position: absolute;
   inset: 0;
@@ -90,8 +107,8 @@
 }
 .token {
   position: absolute;
-  width: 48px;
-  height: 48px;
+  width: var(--cell-size, 48px);
+  height: var(--cell-size, 48px);
   transform: translate(-50%, -50%);
   border-radius: 50%;
   border: 2px solid var(--gold);
@@ -100,7 +117,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.6rem;
+  font-size: calc(var(--cell-size, 48px) * 0.55);
   cursor: grab;
   pointer-events: auto;
   box-shadow: 0 2px 8px rgba(0,0,0,0.5);
@@ -110,6 +127,7 @@
 }
 .token:hover { box-shadow: 0 0 0 3px var(--accent-light); }
 .token.dragging { cursor: grabbing; z-index: 20; opacity: 0.85; transition: none; }
+.token.selected { box-shadow: 0 0 0 3px var(--gold), 0 2px 8px rgba(0,0,0,0.5); z-index: 10; }
 .token img { width: 100%; height: 100%; object-fit: cover; }
 .token-label {
   position: absolute;
@@ -123,6 +141,59 @@
   border-radius: 100px;
   white-space: nowrap;
 }
+
+/* ─── Barre de compétences du token sélectionné ─────────── */
+.token-badges-bar {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: calc(100% - 16px);
+}
+.token-badges-name {
+  font-size: 0.7rem;
+  color: #fff;
+  background: rgba(0,0,0,0.65);
+  padding: 2px 8px;
+  border-radius: 100px;
+  align-self: flex-start;
+}
+.token-badges-hint {
+  font-size: 0.62rem;
+  color: rgba(255,255,255,0.75);
+  background: rgba(0,0,0,0.5);
+  padding: 1px 8px;
+  border-radius: 100px;
+  align-self: flex-start;
+}
+.token-badges-list { display: flex; gap: 6px; flex-wrap: wrap; }
+.token-badge-chip {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  padding: 4px 10px;
+  font-size: 0.72rem;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+}
+.token-badge-chip:hover { border-color: var(--accent); }
+.token-badge-chip.locked { opacity: 0.75; }
+
+/* ─── Réglage de la taille de la grille (curseur MJ) ────── */
+.grid-size-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(0,0,0,0.55);
+  padding: 4px 10px;
+  border-radius: 100px;
+  font-size: 0.7rem;
+  color: #fff;
+}
+.grid-size-control input[type="range"] { width: 90px; }
 
 /* ─── Aperçu/upload de token (joueur ou PNJ) ────────────── */
 .token-upload-preview {

@@ -209,7 +209,7 @@ async function buildAdventureGmState(roleplayId) {
   const characters = await AdventureCharacter.find({ roleplay: roleplayId }).populate('player', 'username');
   const tokenPositions = seance?.nowShowing ? await adv.getMapTokenPositions(roleplayId, seance.nowShowing.mediaId) : [];
   return {
-    roleplay: roleplayDoc ? { id: roleplayDoc._id.toString(), name: roleplayDoc.name, themeColor: roleplayDoc.themeColor, statDefinitions: roleplayDoc.statDefinitions } : null,
+    roleplay: roleplayDoc ? { id: roleplayDoc._id.toString(), name: roleplayDoc.name, themeColor: roleplayDoc.themeColor, statDefinitions: roleplayDoc.statDefinitions, gridSize: roleplayDoc.gridSize } : null,
     chapters: roleplayDoc?.chapters || [],
     npcs: roleplayDoc?.npcs || [],
     isLive: !!seance,
@@ -603,8 +603,9 @@ io.on('connection', (socket) => {
     seance.nowShowing = { mediaId };
     const tokenPositions = await adv.getMapTokenPositions(roleplayId, mediaId);
     const partyMembers = await adv.listPartyMembers(roleplayId);
+    const npcRoster = await adv.listNpcRoster(roleplayId);
     io.to(`adv-players:${roleplayId}`).emit('adv:player:nowShowing', {
-      mediaId, url: `/api/adventures/${roleplayId}/media/${mediaId}/file`, tokenPositions, partyMembers
+      mediaId, url: `/api/adventures/${roleplayId}/media/${mediaId}/file`, tokenPositions, partyMembers, npcRoster
     });
     io.to(`adv-gm:${roleplayId}`).emit('adv:gm:state', await buildAdventureGmState(roleplayId));
   });
@@ -707,6 +708,7 @@ io.on('connection', (socket) => {
       || (roleplayDoc?.chapters || []).find(c => c.isCurrent);
     const tokenPositions = seance.nowShowing ? await adv.getMapTokenPositions(roleplayId, seance.nowShowing.mediaId) : [];
     const partyMembers = await adv.listPartyMembers(roleplayId);
+    const npcRoster = await adv.listNpcRoster(roleplayId);
     const nowShowing = seance.nowShowing
       ? { mediaId: seance.nowShowing.mediaId, url: `/api/adventures/${roleplayId}/media/${seance.nowShowing.mediaId}/file` }
       : null;
@@ -717,7 +719,9 @@ io.on('connection', (socket) => {
       nowShowing,
       nowPlaying: seance.nowPlaying,
       tokenPositions,
-      partyMembers
+      partyMembers,
+      npcRoster,
+      gridSize: roleplayDoc?.gridSize || 20
     });
 
     io.to(`adv-gm:${roleplayId}`).emit('adv:gm:playerJoined', { characterId: character.id, name: character.name });
@@ -732,10 +736,32 @@ io.on('connection', (socket) => {
   });
 
   // ─── Jet de compétence (1d100 + 1d(taille définie sur la compétence)) ───
-  // Autorisation : le MJ peut lancer n'importe quelle compétence, le joueur uniquement les siennes.
-  socket.on('adv:skill:roll', async ({ roleplayId, characterId, skillId }) => {
+  // Autorisation : le MJ peut lancer n'importe quelle compétence (personnage ou PNJ),
+  // le joueur uniquement les siennes — jamais celles d'un PNJ.
+  socket.on('adv:skill:roll', async ({ roleplayId, characterId, kind, skillId }) => {
     const isGm = advRole === 'gm' && advRoleplayId === roleplayId;
     const isOwner = advRole === 'player' && advRoleplayId === roleplayId && advCharacterId === characterId;
+
+    if (kind === 'npc') {
+      if (!isGm) return;
+      const npc = await adv.getNpcById(roleplayId, characterId);
+      if (!npc) return;
+      const isHidden = (npc.hiddenSkills || []).some(s => s.id === skillId);
+      const skill = [...(npc.visibleSkills || []), ...(npc.hiddenSkills || [])].find(s => s.id === skillId);
+      if (!skill) return;
+
+      const percentile = adventureEngine.rollDice(1, 100).rolls[0];
+      const skillRoll = adventureEngine.rollDice(1, skill.diceSides || 6).rolls[0];
+      const result = {
+        characterId, kind: 'npc', characterName: npc.name,
+        skillId, skillName: skill.name, diceSides: skill.diceSides || 6,
+        percentile, skillRoll
+      };
+      socket.emit('adv:skill:result', result);
+      if (!isHidden) socket.to(`adv-players:${roleplayId}`).emit('adv:skill:result', result);
+      return;
+    }
+
     if (!isGm && !isOwner) return;
 
     const character = await adv.getCharacterById(roleplayId, characterId);
@@ -746,7 +772,7 @@ io.on('connection', (socket) => {
     const percentile = adventureEngine.rollDice(1, 100).rolls[0];
     const skillRoll = adventureEngine.rollDice(1, skill.diceSides || 6).rolls[0];
     const result = {
-      characterId, characterName: character.name,
+      characterId, kind: 'character', characterName: character.name,
       skillId, skillName: skill.name, diceSides: skill.diceSides || 6,
       percentile, skillRoll
     };
@@ -782,36 +808,71 @@ io.on('connection', (socket) => {
     const character = await adv.getCharacterById(roleplayId, advCharacterId);
     const seance = adventureEngine.getSeance(roleplayId);
     if (!character || !seance) return;
+    const roleplayDoc = await Roleplay.findById(roleplayId).select('gridSize');
     const tokenPositions = seance.nowShowing ? await adv.getMapTokenPositions(roleplayId, seance.nowShowing.mediaId) : [];
     const partyMembers = await adv.listPartyMembers(roleplayId);
+    const npcRoster = await adv.listNpcRoster(roleplayId);
     socket.emit('adv:player:state', {
       character,
       nowShowing: seance.nowShowing,
       nowPlaying: seance.nowPlaying,
       tokenPositions,
-      partyMembers
+      partyMembers,
+      npcRoster,
+      gridSize: roleplayDoc?.gridSize || 20
     });
   });
 
+  // Taille de la grille tactique (nombre de colonnes) — réglée par le MJ, diffusée en direct.
+  socket.on('adv:gm:setGridSize', async ({ roleplayId, gridSize }) => {
+    if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
+    const value = await adv.setGridSize(roleplayId, getAdvUserId(), gridSize);
+    if (value === null) return;
+    socket.emit('adv:gm:state', await buildAdventureGmState(roleplayId));
+    io.to(`adv-players:${roleplayId}`).emit('adv:player:gridSize', { gridSize: value });
+  });
+
   // ─── Token (déplacement sur la carte, façon Roll20) ─────────
-  // Autorisation : le MJ peut déplacer n'importe quel token, le joueur uniquement le sien.
-  function canMoveToken(roleplayId, characterId) {
+  // Autorisation : le MJ peut déplacer n'importe quel token (PNJ ou personnage),
+  // le joueur uniquement le token de son propre personnage — jamais un PNJ.
+  function canMoveToken(roleplayId, characterId, kind) {
     if (advRole === 'gm' && advRoleplayId === roleplayId) return true;
+    if (kind === 'npc') return false;
     if (advRole === 'player' && advRoleplayId === roleplayId && advCharacterId === characterId) return true;
     return false;
   }
 
-  socket.on('adv:token:drag', ({ roleplayId, characterId, x, y }) => {
-    if (!canMoveToken(roleplayId, characterId)) return;
-    socket.to(`adv-players:${roleplayId}`).to(`adv-gm:${roleplayId}`).emit('adv:token:position', { characterId, x, y, final: false });
+  socket.on('adv:token:drag', ({ roleplayId, characterId, kind, x, y }) => {
+    if (!canMoveToken(roleplayId, characterId, kind)) return;
+    socket.to(`adv-players:${roleplayId}`).to(`adv-gm:${roleplayId}`).emit('adv:token:position', { characterId, kind, x, y, final: false });
   });
 
-  socket.on('adv:token:drop', async ({ roleplayId, characterId, x, y }) => {
-    if (!canMoveToken(roleplayId, characterId)) return;
+  socket.on('adv:token:drop', async ({ roleplayId, characterId, kind, x, y }) => {
+    if (!canMoveToken(roleplayId, characterId, kind)) return;
     const seance = adventureEngine.getSeance(roleplayId);
     if (!seance || !seance.nowShowing) return;
-    await adv.setTokenPosition(roleplayId, seance.nowShowing.mediaId, characterId, x, y);
-    io.to(`adv-players:${roleplayId}`).to(`adv-gm:${roleplayId}`).emit('adv:token:position', { characterId, x, y, final: true });
+    await adv.setTokenPosition(roleplayId, seance.nowShowing.mediaId, characterId, x, y, kind);
+    io.to(`adv-players:${roleplayId}`).to(`adv-gm:${roleplayId}`).emit('adv:token:position', { characterId, kind, x, y, final: true });
+  });
+
+  // Rotation discrète du token (touches Ctrl + flèches côté client)
+  socket.on('adv:token:rotate', async ({ roleplayId, characterId, kind, rotation }) => {
+    if (!canMoveToken(roleplayId, characterId, kind)) return;
+    const seance = adventureEngine.getSeance(roleplayId);
+    if (!seance || !seance.nowShowing) return;
+    const positions = await adv.setTokenRotation(roleplayId, seance.nowShowing.mediaId, characterId, rotation);
+    if (!positions) return;
+    const safeRotation = ((Number(rotation) || 0) % 360 + 360) % 360;
+    io.to(`adv-players:${roleplayId}`).to(`adv-gm:${roleplayId}`).emit('adv:token:rotated', { characterId, kind, rotation: safeRotation });
+  });
+
+  // Retrait du token de la carte (touche Suppr côté client)
+  socket.on('adv:token:remove', async ({ roleplayId, characterId, kind }) => {
+    if (!canMoveToken(roleplayId, characterId, kind)) return;
+    const seance = adventureEngine.getSeance(roleplayId);
+    if (!seance || !seance.nowShowing) return;
+    await adv.removeTokenPosition(roleplayId, seance.nowShowing.mediaId, characterId);
+    io.to(`adv-players:${roleplayId}`).to(`adv-gm:${roleplayId}`).emit('adv:token:removed', { characterId, kind });
   });
 
   socket.on('disconnect', () => {

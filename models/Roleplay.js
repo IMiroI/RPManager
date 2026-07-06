@@ -37,6 +37,8 @@ const roleplaySchema = new mongoose.Schema({
   npcs: { type: [mongoose.Schema.Types.Mixed], default: [] },
   chapters: { type: [mongoose.Schema.Types.Mixed], default: [] },
   pointBudget: { type: Number, default: 30 },
+  // Nombre de colonnes de la grille tactique (carrée) affichée sur la carte — ajustable par le MJ via un curseur.
+  gridSize: { type: Number, default: 20 },
   statDefinitions: { type: [statDefinitionSchema], default: () => DEFAULT_STAT_DEFINITIONS.map(d => ({ ...d })) },
   members: { type: [mongoose.Schema.Types.ObjectId], ref: 'User', default: [], index: true }
 }, { timestamps: { createdAt: 'createdAt', updatedAt: 'updatedAt' } });
