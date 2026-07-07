@@ -335,7 +335,7 @@
           </div>
           ${c.visibleSkills?.length ? `<div class="skills-section"><div class="skills-title">Compétences visibles</div>${visibleSkillsHtml}</div>` : ''}
           ${c.hiddenSkills?.length ? `<div class="skills-section" style="margin-top:8px;"><div class="skills-title">Compétences cachées</div>${hiddenSkillsHtml}</div>` : ''}
-          ${c.specialNote ? `<div class="text-sm" style="margin-top:8px;padding:8px;background:rgba(201,162,39,0.1);border-radius:6px;color:var(--gold-light);">📌 ${esc(c.specialNote)}</div>` : ''}
+          ${c.specialNote ? `<div class="text-sm" style="margin-top:8px;padding:8px;background:rgba(217,180,91,0.1);border-radius:6px;color:var(--gold-light);">📌 ${esc(c.specialNote)}</div>` : ''}
         `;
       }
 
@@ -466,7 +466,7 @@
         const icon = isValidated ? '✓' : isCurrent ? '▶' : '○';
         const iconColor = isValidated ? 'var(--success)' : isCurrent ? 'var(--theme,var(--gold))' : 'var(--text-muted)';
         return `
-          <div onclick="openStepModal(${i})" style="display:flex;align-items:flex-start;gap:8px;padding:7px 8px;border-radius:var(--radius-sm);cursor:pointer;background:${isCurrent ? 'rgba(124,92,191,0.12)' : 'transparent'};margin-bottom:3px;transition:background 0.15s;" onmouseenter="this.style.background='rgba(255,255,255,0.05)'" onmouseleave="this.style.background='${isCurrent ? 'rgba(124,92,191,0.12)' : 'transparent'}'">
+          <div onclick="openStepModal(${i})" style="display:flex;align-items:flex-start;gap:8px;padding:7px 8px;border-radius:var(--radius-sm);cursor:pointer;background:${isCurrent ? 'rgba(143,121,224,0.12)' : 'transparent'};margin-bottom:3px;transition:background 0.15s;" onmouseenter="this.style.background='rgba(255,255,255,0.05)'" onmouseleave="this.style.background='${isCurrent ? 'rgba(143,121,224,0.12)' : 'transparent'}'">
             <span style="color:${iconColor};font-weight:700;font-size:0.8rem;min-width:14px;margin-top:1px;">${icon}</span>
             <span style="font-size:0.8rem;color:${isValidated ? 'var(--text-muted)' : 'var(--text)'};text-decoration:${isValidated ? 'line-through' : 'none'};line-height:1.4;">${esc(title)}</span>
           </div>

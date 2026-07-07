@@ -86,7 +86,7 @@
 }
 
 .card-back {
-  background: linear-gradient(135deg, #1a1a38 0%, #2a1a4a 50%, #1a2a38 100%);
+  background: linear-gradient(135deg, #1d1a2e 0%, #2b2148 50%, #1a2536 100%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -173,7 +173,7 @@
 /* Selected card glow */
 .card-flip.selected .card-front {
   border-color: var(--theme, var(--gold));
-  box-shadow: 0 0 20px rgba(255, 200, 0, 0.25), inset 0 0 20px rgba(255, 200, 0, 0.05);
+  box-shadow: 0 0 20px rgba(217, 180, 91, 0.3), inset 0 0 20px rgba(217, 180, 91, 0.06);
 }
 
 /* ─── Cards Grid ─────────────────────────────── */
@@ -274,26 +274,26 @@
 }
 
 .skill-badge-visible {
-  background: rgba(41, 128, 185, 0.2);
-  color: #5dade2;
+  background: rgba(127, 168, 224, 0.18);
+  color: #a3c1ec;
   cursor: default;
 }
 
 .skill-badge-hidden {
-  background: rgba(243, 156, 18, 0.1);
+  background: rgba(224, 164, 88, 0.1);
   color: var(--text-muted);
   border: 1px dashed var(--border);
 }
 
 .skill-badge-hidden:hover {
-  background: rgba(243, 156, 18, 0.2);
-  color: #f39c12;
-  border-color: #f39c12;
+  background: rgba(224, 164, 88, 0.2);
+  color: var(--warning);
+  border-color: var(--warning);
 }
 
 .skill-badge-revealed {
-  background: rgba(39, 174, 96, 0.2);
-  color: #2ecc71;
+  background: rgba(99, 189, 140, 0.18);
+  color: #8fd4ae;
   cursor: default;
 }
 
@@ -463,8 +463,8 @@
   margin-bottom: 6px;
 }
 
-.tag-visible { background: rgba(41, 128, 185, 0.2); color: #5dade2; }
-.tag-hidden { background: rgba(243, 156, 18, 0.2); color: #f39c12; }
+.tag-visible { background: rgba(127, 168, 224, 0.18); color: #a3c1ec; }
+.tag-hidden { background: rgba(224, 164, 88, 0.18); color: var(--warning); }
 
 /* Messages */
 .messages-list { display: flex; flex-direction: column; gap: 8px; }

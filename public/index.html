@@ -6,54 +6,155 @@
   <title>RPManager — Gestionnaire de Roleplays</title>
   <link rel="stylesheet" href="/css/style.css">
   <style>
-    .hero {
-      text-align: center;
-      padding: 48px 0 32px;
+    /* ─── Coquille : rail latéral + scène ───────────── */
+    body { overflow-y: scroll; }
+
+    .app-shell {
+      display: flex;
+      min-height: 100vh;
     }
-    .hero-title {
-      font-size: 2.5rem;
-      font-weight: 900;
-      background: linear-gradient(135deg, var(--accent-light), var(--gold-light));
+
+    .rail {
+      width: 232px;
+      flex-shrink: 0;
+      border-right: 1px solid var(--border);
+      background: rgba(13, 12, 21, 0.55);
+      display: flex;
+      flex-direction: column;
+      padding: 20px 14px;
+      gap: 4px;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 4px 10px 22px;
+      text-decoration: none;
+    }
+    .brand:hover { text-decoration: none; }
+
+    /* Le rail réutilise .tabs/.tab-btn pour que switchDashboardTab() reste inchangé */
+    .rail .tabs {
+      flex-direction: column;
+      gap: 4px;
+      border-bottom: none;
+      margin-bottom: 0;
+    }
+    .rail .tab-btn {
+      text-align: left;
+      border-bottom: none;
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      margin-bottom: 0;
+      font-size: 0.92rem;
+      width: 100%;
+    }
+    .rail .tab-btn:hover { background: rgba(143, 121, 224, 0.08); color: var(--text); }
+    .rail .tab-btn.active {
+      color: var(--gold-light);
+      background: linear-gradient(90deg, rgba(217, 180, 91, 0.14), rgba(217, 180, 91, 0.04));
+      box-shadow: inset 2px 0 0 var(--gold);
+    }
+
+    .rail-foot {
+      margin-top: auto;
+      border-top: 1px solid var(--border);
+      padding-top: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .rail-user {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 6px;
+    }
+    .avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      background: linear-gradient(140deg, var(--accent), #5540a8);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 0.8rem;
+      color: #fff;
+    }
+    .rail-user-info { min-width: 0; line-height: 1.25; }
+    .rail-user-info b { display: block; font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .rail-user-info span { font-size: 0.7rem; color: var(--text-muted); }
+
+    .stage {
+      flex: 1;
+      min-width: 0;
+      padding: 36px 40px 80px;
+      background: radial-gradient(ellipse 760px 420px at 78% -120px, rgba(143, 121, 224, 0.09), transparent 65%);
+    }
+
+    .stage-inner { max-width: 1100px; margin: 0 auto; }
+
+    .stage-top {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 26px;
+    }
+    .stage-title {
+      font-size: 1.9rem;
+      background: linear-gradient(160deg, var(--text) 30%, var(--gold-light) 85%);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       background-clip: text;
-      margin-bottom: 12px;
     }
-    .hero-sub {
-      color: var(--text-muted);
-      font-size: 1rem;
-    }
-    .toolbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-top: 40px;
-      flex-wrap: wrap;
-      gap: 12px;
-    }
+    .stage-sub { color: var(--text-muted); font-size: 0.92rem; margin-top: 2px; }
+
+    /* ─── Bandeau sessions actives ──────────────────── */
     .active-sessions-bar {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 16px 20px;
-      margin-top: 32px;
       display: flex;
       align-items: center;
-      justify-content: space-between;
+      gap: 16px;
       flex-wrap: wrap;
-      gap: 12px;
+      padding: 14px 18px;
+      margin-bottom: 26px;
+      border-radius: var(--radius);
+      border: 1px solid rgba(99, 189, 140, 0.25);
+      background: linear-gradient(90deg, rgba(99, 189, 140, 0.09), rgba(99, 189, 140, 0.02) 55%), var(--card);
+    }
+    .live-dot { position: relative; width: 10px; height: 10px; flex-shrink: 0; }
+    .live-dot::before, .live-dot::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      background: var(--success);
+    }
+    .live-dot::after { animation: live-pulse 2s ease-out infinite; }
+    @keyframes live-pulse {
+      0% { transform: scale(1); opacity: 0.7; }
+      100% { transform: scale(3); opacity: 0; }
     }
     .sessions-list {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
+      flex: 1;
+      justify-content: flex-end;
     }
     .session-chip {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      padding: 6px 12px;
-      background: var(--card);
+      padding: 6px 14px;
+      background: var(--surface);
       border: 1px solid var(--border);
       border-radius: 100px;
       font-size: 0.8rem;
@@ -61,19 +162,115 @@
       color: var(--text);
       transition: all var(--transition);
     }
-    .session-chip:hover {
-      border-color: var(--accent);
-      text-decoration: none;
-    }
+    .session-chip:hover { border-color: var(--gold); text-decoration: none; }
     .session-chip-code {
-      font-family: monospace;
-      font-weight: 800;
-      color: var(--gold-light);
+      font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      color: var(--success);
     }
-    .no-sessions {
-      font-size: 0.85rem;
-      color: var(--text-muted);
+
+    /* ─── Compteurs au-dessus des grilles ───────────── */
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 4px;
     }
+
+    /* ─── Cartes-couvertures ────────────────────────── */
+    .roleplay-grid { margin-top: 20px; }
+
+    .roleplay-card { --theme: var(--accent); }
+    .roleplay-card:hover {
+      border-color: color-mix(in srgb, var(--theme) 55%, var(--border));
+      box-shadow: var(--shadow-lg), 0 0 30px -12px var(--theme);
+      transform: translateY(-4px);
+    }
+
+    .rp-cover {
+      position: relative;
+      min-height: 116px;
+      display: flex;
+      align-items: flex-end;
+      padding: 40px 18px 13px;
+      background:
+        radial-gradient(ellipse 240px 130px at 18% -25%, color-mix(in srgb, var(--theme) 55%, transparent), transparent 70%),
+        radial-gradient(ellipse 260px 160px at 95% 125%, color-mix(in srgb, var(--theme) 28%, transparent), transparent 70%),
+        linear-gradient(155deg, color-mix(in srgb, var(--theme) 24%, var(--card-hover)), var(--surface));
+    }
+    .rp-cover::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+      opacity: 0.14;
+      mix-blend-mode: overlay;
+      pointer-events: none;
+    }
+    .rp-cover-title {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 1.08rem;
+      line-height: 1.25;
+      letter-spacing: 0.02em;
+      color: var(--text);
+      text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+      position: relative;
+      z-index: 1;
+      word-break: break-word;
+    }
+    .rp-badges {
+      position: absolute;
+      top: 12px;
+      left: 14px;
+      right: 14px;
+      z-index: 1;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .rp-type-badge, .rp-role-badge {
+      font-size: 0.66rem;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--text);
+      background: rgba(13, 12, 21, 0.55);
+      border: 1px solid rgba(237, 234, 244, 0.16);
+      backdrop-filter: blur(4px);
+      border-radius: 100px;
+      padding: 3px 10px;
+      white-space: nowrap;
+    }
+    .rp-role-badge { color: var(--gold-light); border-color: rgba(217, 180, 91, 0.35); }
+
+    .char-token {
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.6rem;
+      border: 2px solid color-mix(in srgb, var(--theme) 70%, transparent);
+      background: radial-gradient(circle at 30% 25%, color-mix(in srgb, var(--theme) 40%, var(--card-hover)), var(--surface));
+      position: relative;
+      z-index: 1;
+    }
+    .char-token img { width: 100%; height: 100%; object-fit: cover; }
+    .rp-cover.char-cover {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 18px;
+    }
+
+    /* ─── Choix de type dans la modale de création ──── */
     .rp-type-choice {
       display: flex;
       align-items: flex-start;
@@ -87,14 +284,13 @@
       cursor: pointer;
       transition: all var(--transition);
       color: var(--text);
+      font-family: inherit;
     }
-    .rp-type-choice:hover {
-      border-color: var(--accent);
-      background: var(--card-hover);
-    }
+    .rp-type-choice:hover { border-color: var(--gold); background: var(--card-hover); }
     .rp-type-choice-icon { font-size: 1.6rem; }
     .rp-type-choice-title {
       display: block;
+      font-family: var(--font-display);
       font-weight: 700;
       margin-bottom: 4px;
     }
@@ -103,37 +299,75 @@
       font-size: 0.8rem;
       color: var(--text-muted);
     }
+
+    .no-sessions { font-size: 0.85rem; color: var(--text-muted); }
+
+    /* ─── Responsive : rail → barre supérieure ──────── */
+    @media (max-width: 820px) {
+      .app-shell { flex-direction: column; }
+      .rail {
+        width: 100%;
+        height: auto;
+        position: static;
+        flex-direction: row;
+        align-items: center;
+        flex-wrap: wrap;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+        padding: 12px 16px;
+        gap: 10px;
+      }
+      .brand { padding: 0 6px 0 0; }
+      .rail .tabs { flex-direction: row; flex: 1; }
+      .rail .tab-btn { width: auto; }
+      .rail .tab-btn.active { box-shadow: inset 0 -2px 0 var(--gold); }
+      .rail-foot { margin-top: 0; border-top: none; padding-top: 0; flex-direction: row; align-items: center; margin-left: auto; }
+      .rail-user-info { display: none; }
+      .stage { padding: 24px 16px 60px; }
+      .sessions-list { justify-content: flex-start; }
+    }
   </style>
 </head>
 <body>
-  <header class="page-header">
-    <div class="container" style="display:flex;align-items:center;justify-content:space-between;">
-      <a href="/" class="logo">
-        <div class="logo-icon">🎭</div>
-        <span class="logo-text">RPManager</span>
+  <div class="app-shell">
+    <aside class="rail">
+      <a href="/" class="brand">
+        <div class="brand-mono">R</div>
+        <span class="brand-name">RPManager</span>
       </a>
-      <div style="display:flex;align-items:center;gap:12px;">
-        <span id="user-label" class="text-muted text-sm"></span>
-        <button class="btn btn-ghost btn-sm" id="logout-btn">Déconnexion</button>
-      </div>
-    </div>
-  </header>
 
-  <main class="main-content">
-    <div class="container">
-      <div class="hero">
-        <h1 class="hero-title">Vos Histoires</h1>
-        <p class="hero-sub">Créez et gérez vos aventures de jeu de rôle. Lancez une session en un clic.</p>
-      </div>
-
-      <div class="tabs" style="margin-top:24px;">
+      <nav class="tabs">
         <button class="tab-btn active" data-tab="dash-roleplays" onclick="switchDashboardTab('dash-roleplays')">🎭 Mes Roleplays</button>
         <button class="tab-btn" data-tab="dash-characters" onclick="switchDashboardTab('dash-characters')">🧙 Mes personnages</button>
-      </div>
+      </nav>
 
-      <div class="tab-panel active" id="tab-dash-roleplays">
+      <div class="rail-foot">
+        <div class="rail-user">
+          <div class="avatar" id="user-avatar">?</div>
+          <div class="rail-user-info">
+            <b id="user-label"></b>
+            <span>Connecté</span>
+          </div>
+        </div>
+        <button class="btn btn-ghost btn-sm" id="logout-btn">Déconnexion</button>
+      </div>
+    </aside>
+
+    <main class="stage">
+      <div class="stage-inner">
+        <div class="stage-top">
+          <div>
+            <h1 class="stage-title">Vos Histoires</h1>
+            <div class="stage-sub">Créez et gérez vos aventures de jeu de rôle. Lancez une session en un clic.</div>
+          </div>
+          <button class="btn btn-gold" onclick="openCreateModal()">
+            <span>+</span> Créer un Roleplay
+          </button>
+        </div>
+
         <div id="active-sessions-container" style="display:none;">
           <div class="active-sessions-bar">
+            <div class="live-dot" aria-hidden="true"></div>
             <div>
               <div class="section-title" style="font-size:0.9rem;">Sessions actives</div>
               <div class="text-sm text-muted">En cours de jeu</div>
@@ -142,31 +376,30 @@
           </div>
         </div>
 
-        <div class="toolbar">
-          <div>
-            <div class="section-title" id="roleplay-count-label">Chargement...</div>
-            <div class="section-subtitle">Choisissez une histoire pour jouer ou créez-en une nouvelle</div>
+        <div class="tab-panel active" id="tab-dash-roleplays">
+          <div class="toolbar">
+            <div>
+              <div class="section-title" id="roleplay-count-label">Chargement...</div>
+              <div class="section-subtitle">Choisissez une histoire pour jouer ou créez-en une nouvelle</div>
+            </div>
           </div>
-          <button class="btn btn-primary" onclick="openCreateModal()">
-            <span>+</span> Créer un Roleplay
-          </button>
+
+          <div class="roleplay-grid" id="roleplay-grid"></div>
         </div>
 
-        <div class="roleplay-grid" id="roleplay-grid"></div>
-      </div>
-
-      <div class="tab-panel" id="tab-dash-characters">
-        <div class="toolbar">
-          <div>
-            <div class="section-title" id="my-characters-count-label">Chargement...</div>
-            <div class="section-subtitle">Tous vos personnages, toutes aventures confondues</div>
+        <div class="tab-panel" id="tab-dash-characters">
+          <div class="toolbar">
+            <div>
+              <div class="section-title" id="my-characters-count-label">Chargement...</div>
+              <div class="section-subtitle">Tous vos personnages, toutes aventures confondues</div>
+            </div>
           </div>
-        </div>
 
-        <div class="roleplay-grid" id="my-characters-grid"></div>
+          <div class="roleplay-grid" id="my-characters-grid"></div>
+        </div>
       </div>
-    </div>
-  </main>
+    </main>
+  </div>
 
   <div class="toast-container" id="toast-container"></div>
 
@@ -274,13 +507,14 @@
       }
 
       grid.innerHTML = list.map(c => `
-        <div class="roleplay-card">
-          <div class="roleplay-card-accent" style="background:${c.roleplayThemeColor}"></div>
-          <div class="roleplay-card-body">
-            <div class="roleplay-card-icon">${c.tokenMediaId
-              ? `<img src="/api/adventures/${c.roleplayId}/media/${c.tokenMediaId}/file" style="width:48px;height:48px;object-fit:cover;border-radius:50%;">`
+        <div class="roleplay-card" style="--theme:${c.roleplayThemeColor}">
+          <div class="rp-cover char-cover">
+            <div class="char-token">${c.tokenMediaId
+              ? `<img src="/api/adventures/${c.roleplayId}/media/${c.tokenMediaId}/file" alt="">`
               : (c.icon || '❓')}</div>
-            <div class="roleplay-card-name">${escHtml(c.name)}</div>
+            <div class="rp-cover-title">${escHtml(c.name)}</div>
+          </div>
+          <div class="roleplay-card-body">
             <div class="roleplay-card-desc">Aventure : ${escHtml(c.roleplayName)}</div>
           </div>
           <div class="roleplay-card-actions">
@@ -315,15 +549,17 @@
       }
 
       grid.innerHTML = list.map(rp => `
-        <div class="roleplay-card">
-          <div class="roleplay-card-accent" style="background:${rp.themeColor}"></div>
+        <div class="roleplay-card" style="--theme:${rp.themeColor}">
+          <div class="rp-cover">
+            <div class="rp-badges">
+              <span class="rp-type-badge">${rp.type === 'aventure' ? '📖 Aventure' : '🎬 OneShot'}</span>
+              ${rp.role === 'player' ? '<span class="rp-role-badge">🎭 Joueur</span>' : ''}
+            </div>
+            <div class="rp-cover-title">${escHtml(rp.name)}</div>
+          </div>
           <div class="roleplay-card-body">
-            <div class="roleplay-card-icon">🎭</div>
-            <div class="roleplay-card-name">${escHtml(rp.name)}</div>
             <div class="roleplay-card-desc">${escHtml(rp.description || '')}</div>
             <div class="roleplay-card-meta">
-              <span class="meta-badge">${rp.type === 'aventure' ? '📖 Aventure' : '🎬 OneShot'}</span>
-              ${rp.role === 'player' ? '<span class="meta-badge">🎭 Joueur</span>' : ''}
               <span class="meta-badge">👥 ${rp.maxPlayers} joueurs max</span>
               <span class="meta-badge">🧙 ${rp.characterCount ?? 0} personnages</span>
             </div>
@@ -479,6 +715,7 @@
       const me = await checkAuth();
       if (!me) return;
       document.getElementById('user-label').textContent = me.username;
+      document.getElementById('user-avatar').textContent = (me.username || '?').charAt(0).toUpperCase();
       loadRoleplays();
       loadMyCharacters();
     })();

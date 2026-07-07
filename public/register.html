@@ -6,25 +6,69 @@
   <title>Créer un compte — RPManager</title>
   <link rel="stylesheet" href="/css/style.css">
   <style>
+    body {
+      background:
+        radial-gradient(ellipse 800px 420px at 50% -140px, rgba(143, 121, 224, 0.16), transparent 70%),
+        radial-gradient(ellipse 540px 280px at 50% -60px, rgba(217, 180, 91, 0.07), transparent 70%),
+        var(--bg);
+    }
     .auth-wrap {
-      min-height: calc(100vh - 65px);
+      min-height: 100vh;
       display: flex;
+      flex-direction: column;
       align-items: center;
       justify-content: center;
       padding: 24px;
+      gap: 28px;
+    }
+    .auth-brand {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+    }
+    .auth-brand:hover { text-decoration: none; }
+    .auth-brand .brand-mono {
+      width: 52px;
+      height: 52px;
+      border-radius: 14px;
+      font-size: 1.5rem;
+    }
+    .auth-brand .brand-name { font-size: 1.35rem; }
+    .auth-tagline {
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
     }
     .auth-card {
       width: 100%;
-      max-width: 380px;
+      max-width: 390px;
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: var(--radius);
       padding: 32px;
-      box-shadow: var(--shadow);
+      box-shadow: var(--shadow-lg);
+      position: relative;
+      overflow: hidden;
+    }
+    .auth-card::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 24px;
+      right: 24px;
+      height: 2px;
+      border-radius: 2px;
+      background: linear-gradient(90deg, transparent, var(--gold), transparent);
+      opacity: 0.7;
     }
     .auth-title {
-      font-size: 1.4rem;
-      font-weight: 800;
+      font-family: var(--font-display);
+      font-size: 1.45rem;
+      font-weight: 700;
+      letter-spacing: 0.03em;
       margin-bottom: 4px;
       text-align: center;
     }
@@ -36,9 +80,9 @@
     }
     .auth-error {
       display: none;
-      background: rgba(192,57,43,0.15);
+      background: rgba(224,101,78,0.15);
       border: 1px solid var(--danger);
-      color: #ff9a8b;
+      color: #f0a08f;
       border-radius: var(--radius-sm);
       padding: 10px 14px;
       font-size: 0.85rem;
@@ -58,16 +102,13 @@
   </style>
 </head>
 <body>
-  <header class="page-header">
-    <div class="container">
-      <a href="/" class="logo">
-        <div class="logo-icon">🎭</div>
-        <span class="logo-text">RPManager</span>
-      </a>
-    </div>
-  </header>
-
   <main class="auth-wrap">
+    <a href="/" class="auth-brand">
+      <div class="brand-mono">R</div>
+      <span class="brand-name">RPManager</span>
+      <span class="auth-tagline">Votre première histoire commence ici</span>
+    </a>
+
     <div class="auth-card">
       <div class="auth-title">Créer un compte</div>
       <div class="auth-sub">Pour enregistrer et retrouver vos roleplays</div>
@@ -89,7 +130,7 @@
           <label class="form-label">Confirmer le mot de passe</label>
           <input type="password" class="form-input" id="password2" autocomplete="new-password" required minlength="8">
         </div>
-        <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;">Créer mon compte</button>
+        <button type="submit" class="btn btn-gold" style="width:100%;justify-content:center;">Créer mon compte</button>
       </form>
 
       <div class="auth-footer">

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "rpmanager-preview",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["-e", "process.env.PORT='3013'; require('./server.js');"],
+      "port": 3013
+    }
+  ]
+}
