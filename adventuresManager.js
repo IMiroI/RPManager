@@ -13,6 +13,13 @@ function newId() {
   return randomBytes(6).toString('hex');
 }
 
+// Valide une couleur hex #RGB/#RRGGBB pour le contour du token — retombe sur le doré par défaut
+// si absente/invalide (jamais de valeur non fiable injectée dans un attribut style côté client).
+function sanitizeTokenColor(color) {
+  if (typeof color === 'string' && /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(color.trim())) return color.trim();
+  return '#c9a227';
+}
+
 async function getOwnedAdventure(roleplayId, ownerId) {
   const doc = await Roleplay.findOne({ _id: roleplayId, owner: ownerId, type: 'aventure' }).catch(() => null);
   return doc;
@@ -125,7 +132,8 @@ async function createNpc(roleplayId, ownerId, data) {
     backstory: data.backstory || '',
     stats: data.stats || {},
     visibleSkills: data.visibleSkills || [],
-    hiddenSkills: data.hiddenSkills || []
+    hiddenSkills: data.hiddenSkills || [],
+    tokenColor: sanitizeTokenColor(data.tokenColor)
   };
   doc.npcs.push(npc);
   await doc.save();
@@ -146,6 +154,7 @@ async function updateNpc(roleplayId, ownerId, npcId, data) {
   if (data.stats !== undefined) npc.stats = data.stats;
   if (data.visibleSkills !== undefined) npc.visibleSkills = data.visibleSkills;
   if (data.hiddenSkills !== undefined) npc.hiddenSkills = data.hiddenSkills;
+  if (data.tokenColor !== undefined) npc.tokenColor = sanitizeTokenColor(data.tokenColor);
 
   doc.markModified('npcs');
   await doc.save();
@@ -237,18 +246,15 @@ function sanitizeSkills(skills) {
     }));
 }
 
-async function getCharacter(roleplayId, playerId) {
-  const doc = await AdventureCharacter.findOne({ roleplay: roleplayId, player: playerId }).catch(() => null);
-  if (!doc) return null;
-  return doc.toJSON();
+// Un joueur peut avoir plusieurs personnages sur une même aventure — toujours retourné en liste.
+async function listCharactersForPlayer(roleplayId, playerId) {
+  const docs = await AdventureCharacter.find({ roleplay: roleplayId, player: playerId }).catch(() => []);
+  return docs.map(d => d.toJSON());
 }
 
 async function createCharacter(roleplayId, playerId, data) {
   const rp = await Roleplay.findOne({ _id: roleplayId, type: 'aventure' }).catch(() => null);
   if (!rp) return { error: 'not_found' };
-
-  const existing = await AdventureCharacter.findOne({ roleplay: roleplayId, player: playerId });
-  if (existing) return { error: 'already_exists' };
 
   const { error: validationError, stats } = sanitizeAndValidateStats(data.stats, rp.statDefinitions, rp.pointBudget);
   if (validationError) return { error: 'invalid_stats', message: validationError };
@@ -258,6 +264,7 @@ async function createCharacter(roleplayId, playerId, data) {
     player: playerId,
     name: data.name,
     icon: (data.icon || '❓').trim().slice(0, 4) || '❓',
+    tokenColor: sanitizeTokenColor(data.tokenColor),
     backstory: data.backstory || '',
     skills: sanitizeSkills(data.skills),
     stats
@@ -265,15 +272,35 @@ async function createCharacter(roleplayId, playerId, data) {
   return { character: doc.toJSON() };
 }
 
-async function updateCharacterProfile(roleplayId, playerId, data) {
-  const doc = await AdventureCharacter.findOne({ roleplay: roleplayId, player: playerId }).catch(() => null);
+async function updateCharacterProfile(roleplayId, playerId, characterId, data) {
+  const doc = await AdventureCharacter.findOne({ _id: characterId, roleplay: roleplayId, player: playerId }).catch(() => null);
   if (!doc) return null;
   if (data.name !== undefined) doc.name = data.name;
   if (data.icon !== undefined) doc.icon = (data.icon || '❓').trim().slice(0, 4) || '❓';
+  if (data.tokenColor !== undefined) doc.tokenColor = sanitizeTokenColor(data.tokenColor);
   if (data.backstory !== undefined) doc.backstory = data.backstory;
   if (data.skills !== undefined) doc.skills = sanitizeSkills(data.skills);
   await doc.save();
   return doc.toJSON();
+}
+
+// Vue "Gestion de mes personnages" (dashboard) : tous les personnages du joueur, toutes aventures
+// confondues, avec de quoi les relier (nom/couleur/lien d'invitation de l'aventure).
+async function listCharactersAcrossAdventures(userId) {
+  const docs = await AdventureCharacter.find({ player: userId }).populate('roleplay', 'name themeColor inviteCode').catch(() => []);
+  return docs
+    .filter(c => c.roleplay && c.roleplay.inviteCode)
+    .map(c => ({
+      id: c._id.toString(),
+      name: c.name,
+      icon: c.icon,
+      tokenMediaId: c.tokenMediaId,
+      backstory: c.backstory,
+      roleplayId: c.roleplay._id.toString(),
+      roleplayName: c.roleplay.name,
+      roleplayThemeColor: c.roleplay.themeColor,
+      roleplayInviteCode: c.roleplay.inviteCode
+    }));
 }
 
 // ─── Vue MJ sur les personnages (toutes, hors budget) ────
@@ -344,8 +371,8 @@ async function appendPrivateMessage(roleplayId, characterId, text, from) {
 }
 
 // ─── Token de personnage (image + position sur carte) ──────────
-async function createCharacterToken(roleplayId, playerId, file) {
-  const character = await AdventureCharacter.findOne({ roleplay: roleplayId, player: playerId }).catch(() => null);
+async function createCharacterToken(roleplayId, playerId, characterId, file) {
+  const character = await AdventureCharacter.findOne({ _id: characterId, roleplay: roleplayId, player: playerId }).catch(() => null);
   if (!character) return null;
 
   if (character.tokenMediaId) {
@@ -402,8 +429,8 @@ async function createNpcToken(roleplayId, ownerId, npcId, file) {
 }
 
 async function listPartyMembers(roleplayId) {
-  const chars = await AdventureCharacter.find({ roleplay: roleplayId }).select('name icon tokenMediaId');
-  return chars.map(c => ({ id: c._id.toString(), name: c.name, icon: c.icon, tokenMediaId: c.tokenMediaId }));
+  const chars = await AdventureCharacter.find({ roleplay: roleplayId }).select('name icon tokenMediaId tokenColor');
+  return chars.map(c => ({ id: c._id.toString(), name: c.name, icon: c.icon, tokenMediaId: c.tokenMediaId, tokenColor: c.tokenColor }));
 }
 
 // Vue publique des PNJ (nom/icône/token) — sans stats/compétences/notes MJ — envoyée aux joueurs
@@ -411,7 +438,7 @@ async function listPartyMembers(roleplayId) {
 async function listNpcRoster(roleplayId) {
   const doc = await Roleplay.findById(roleplayId).select('npcs').catch(() => null);
   if (!doc) return [];
-  return (doc.npcs || []).map(n => ({ id: n.id, name: n.name, icon: n.icon, tokenMediaId: n.tokenMediaId || null }));
+  return (doc.npcs || []).map(n => ({ id: n.id, name: n.name, icon: n.icon, tokenMediaId: n.tokenMediaId || null, tokenColor: n.tokenColor || '#c9a227' }));
 }
 
 async function getMapTokenPositions(roleplayId, mediaId) {
@@ -419,15 +446,21 @@ async function getMapTokenPositions(roleplayId, mediaId) {
   return media ? media.tokenPositions : [];
 }
 
-async function setTokenPosition(roleplayId, mediaId, characterId, x, y, kind) {
+async function setTokenPosition(roleplayId, mediaId, characterId, x, y, kind, spriteMediaId) {
   const media = await Media.findOne({ _id: mediaId, roleplay: roleplayId, kind: 'map' }).catch(() => null);
   if (!media) return null;
   const safeX = Math.min(100, Math.max(0, Number(x) || 0));
   const safeY = Math.min(100, Math.max(0, Number(y) || 0));
-  const safeKind = kind === 'npc' ? 'npc' : 'character';
+  const safeKind = ['npc', 'sprite'].includes(kind) ? kind : 'character';
   const existing = media.tokenPositions.find(p => p.characterId === characterId);
-  if (existing) { existing.x = safeX; existing.y = safeY; existing.kind = safeKind; }
-  else media.tokenPositions.push({ characterId, kind: safeKind, x: safeX, y: safeY, rotation: 0 });
+  if (existing) {
+    existing.x = safeX; existing.y = safeY; existing.kind = safeKind;
+    if (safeKind === 'sprite' && spriteMediaId) existing.spriteMediaId = spriteMediaId;
+  } else {
+    const entry = { characterId, kind: safeKind, x: safeX, y: safeY, rotation: 0 };
+    if (safeKind === 'sprite') entry.spriteMediaId = spriteMediaId || null;
+    media.tokenPositions.push(entry);
+  }
   media.markModified('tokenPositions');
   await media.save();
   return media.tokenPositions;
@@ -508,7 +541,7 @@ module.exports = {
   listChapters, createChapter, updateChapter, deleteChapter, setCurrentChapter,
   listNpcs, createNpc, updateNpc, deleteNpc,
   createMedia, listMedia, getMediaFile, deleteMedia,
-  getCharacter, createCharacter, updateCharacterProfile,
+  listCharactersForPlayer, createCharacter, updateCharacterProfile, listCharactersAcrossAdventures,
   listCharacters, updateCharacterStatsById, updateCharacterInventoryById, updateCharacterSkillsById, appendJournalEntry, getCharacterById,
   appendPrivateMessage,
   createCharacterToken, createNpcToken, listPartyMembers, listNpcRoster, getMapTokenPositions, setTokenPosition,

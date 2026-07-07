@@ -89,7 +89,8 @@
 /* Zoom local : #zoom-content a une largeur/hauteur explicite (posée en JS = taille du
    conteneur × niveau de zoom) et #stage-scroll permet de défiler/paner quand elle dépasse —
    ce zoom est purement visuel pour ce spectateur, les positions en % des tokens ne changent pas. */
-.stage-scroll { position: absolute; inset: 0; overflow: auto; }
+.stage-scroll { position: absolute; inset: 0; overflow: auto; cursor: grab; }
+.stage-scroll.panning { cursor: grabbing; user-select: none; }
 .zoom-content { position: relative; }
 .map-grid-overlay {
   position: absolute;
@@ -111,7 +112,9 @@
   height: var(--cell-size, 48px);
   transform: translate(-50%, -50%);
   border-radius: 50%;
-  border: 2px solid var(--gold);
+  /* Couleur du contour personnalisable par PNJ/personnage — posée en inline style par token
+     (--token-color), avec le doré par défaut si non définie (jetons plus anciens, sprites, etc.). */
+  border: 2px solid var(--token-color, var(--gold));
   overflow: hidden;
   background: var(--surface);
   display: flex;
@@ -129,6 +132,12 @@
 .token.dragging { cursor: grabbing; z-index: 20; opacity: 0.85; transition: none; }
 .token.selected { box-shadow: 0 0 0 3px var(--gold), 0 2px 8px rgba(0,0,0,0.5); z-index: 10; }
 .token img { width: 100%; height: 100%; object-fit: cover; }
+/* Sprites de décor : pas de cercle/contour/fond, pour s'incruster dans la carte comme un simple
+   élément de décor plutôt qu'un jeton de personnage. */
+.token.sprite-token { border: none; border-radius: 0; background: transparent; box-shadow: none; }
+.token.sprite-token:hover { box-shadow: 0 0 0 2px rgba(255,255,255,0.35); }
+.token.sprite-token.selected { box-shadow: 0 0 0 2px var(--gold); }
+.token.sprite-token img { object-fit: contain; }
 .token-label {
   position: absolute;
   bottom: -18px;
@@ -183,6 +192,10 @@
 .token-badge-chip:hover { border-color: var(--accent); }
 .token-badge-chip.locked { opacity: 0.75; }
 
+/* ─── Onglets compacts du panneau latéral (MJ et joueur) ──── */
+.gm-tabs { margin-bottom: 14px; gap: 0; flex-wrap: wrap; }
+.gm-tabs .tab-btn { padding: 8px 6px; font-size: 0.72rem; flex: 1; text-align: center; }
+
 /* ─── Réglage de la taille de la grille (curseur MJ) ────── */
 .grid-size-control {
   display: flex;
@@ -232,7 +245,7 @@
   width: 64px;
   height: 64px;
   border-radius: 50%;
-  border: 2px solid var(--gold);
+  border: 2px solid var(--token-color, var(--gold));
   background: var(--surface);
   display: flex;
   align-items: center;

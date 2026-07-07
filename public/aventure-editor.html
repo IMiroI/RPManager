@@ -213,6 +213,12 @@
             <div class="dropzone-hint">MP3, OGG, WAV — 30 Mo max</div>
             <input type="file" id="input-music" accept="audio/mpeg,audio/mp3,audio/ogg,audio/wav" style="display:none;">
           </div>
+          <div class="dropzone" id="dropzone-sprite" onclick="document.getElementById('input-sprite').click()">
+            <div class="dropzone-icon">🎨</div>
+            <div>Déposer ou choisir un sprite</div>
+            <div class="dropzone-hint">PNG (avec transparence) — 3 Mo max</div>
+            <input type="file" id="input-sprite" accept="image/png" style="display:none;">
+          </div>
         </div>
 
         <h3 style="margin-top:28px;margin-bottom:0;">🗺 Cartes</h3>
@@ -220,6 +226,10 @@
 
         <h3 style="margin-top:28px;margin-bottom:0;">🎵 Musiques</h3>
         <div class="media-grid" id="media-grid-music"></div>
+
+        <h3 style="margin-top:28px;margin-bottom:0;">🎨 Sprites (décor)</h3>
+        <p class="text-muted text-sm" style="margin-top:4px;">Éléments de décor à poser sur la carte pendant la séance (onglet Sprites du panneau MJ).</p>
+        <div class="media-grid" id="media-grid-sprite"></div>
       </div>
     </div>
   </div>
@@ -261,9 +271,11 @@
           <div class="form-group">
             <label class="form-label">Token (image)</label>
             <div style="display:flex;align-items:center;gap:12px;">
-              <div class="token-upload-preview" id="npc-token-preview" onclick="document.getElementById('npc-token-input').click()" title="Choisir une image">➕</div>
+              <div class="token-upload-preview" id="npc-token-preview" onclick="document.getElementById('npc-token-input').click()" title="Choisir une image" style="--token-color:#c9a227;">➕</div>
               <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('npc-token-input').click()">Choisir une image</button>
               <input type="file" id="npc-token-input" accept="image/png,image/jpeg,image/webp" style="display:none;" onchange="onNpcTokenSelected(this.files[0])">
+              <label class="form-label" style="margin:0;">Contour</label>
+              <input type="color" id="npc-token-color" value="#c9a227" oninput="document.getElementById('npc-token-preview').style.setProperty('--token-color', this.value)">
             </div>
           </div>
           <div class="form-row">
@@ -336,8 +348,20 @@
           <div id="chapter-npcs-list" class="text-sm text-muted">Aucun PNJ créé pour l'instant.</div>
         </div>
         <div class="form-group">
-          <label class="form-label">Médias liés</label>
-          <div id="chapter-media-list" class="text-sm text-muted">Aucun média disponible pour l'instant.</div>
+          <label class="form-label">🗺 Cartes du chapitre</label>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('chapter-map-input').click()">+ Uploader une carte</button>
+            <input type="file" id="chapter-map-input" accept="image/png,image/jpeg,image/webp" style="display:none;" onchange="uploadChapterMedia('map', this.files[0])">
+          </div>
+          <div id="chapter-maps-checklist" class="text-sm text-muted">Aucune carte disponible pour l'instant.</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">🎵 Musiques du chapitre</label>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('chapter-music-input').click()">+ Uploader une musique</button>
+            <input type="file" id="chapter-music-input" accept="audio/mpeg,audio/mp3,audio/ogg,audio/wav" style="display:none;" onchange="uploadChapterMedia('music', this.files[0])">
+          </div>
+          <div id="chapter-music-checklist" class="text-sm text-muted">Aucune musique disponible pour l'instant.</div>
         </div>
       </div>
       <div class="modal-footer">
@@ -589,6 +613,8 @@
       document.getElementById('npc-token-preview').innerHTML = n.tokenMediaId
         ? `<img src="/api/adventures/${roleplaysId}/media/${n.tokenMediaId}/file">`
         : (n.icon || '➕');
+      document.getElementById('npc-token-color').value = n.tokenColor || '#c9a227';
+      document.getElementById('npc-token-preview').style.setProperty('--token-color', n.tokenColor || '#c9a227');
       renderNpcStatsGrid(n.stats || {});
       renderNpcSkillsList('visible', n.visibleSkills || []);
       renderNpcSkillsList('hidden', n.hiddenSkills || []);
@@ -633,6 +659,8 @@
       document.getElementById('npc-backstory').value = '';
       selectedNpcTokenFile = null;
       document.getElementById('npc-token-preview').innerHTML = '➕';
+      document.getElementById('npc-token-color').value = '#c9a227';
+      document.getElementById('npc-token-preview').style.setProperty('--token-color', '#c9a227');
       renderNpcStatsGrid({});
       renderNpcSkillsList('visible', []);
       renderNpcSkillsList('hidden', []);
@@ -707,7 +735,8 @@
         backstory: document.getElementById('npc-backstory').value.trim(),
         stats: collectNpcStats(),
         visibleSkills: collectNpcSkills('visible'),
-        hiddenSkills: collectNpcSkills('hidden')
+        hiddenSkills: collectNpcSkills('hidden'),
+        tokenColor: document.getElementById('npc-token-color').value
       };
 
       const url = editingNpcId ? `/api/adventures/${roleplaysId}/npcs/${editingNpcId}` : `/api/adventures/${roleplaysId}/npcs`;
@@ -789,17 +818,43 @@
     }
 
     function renderChapterMediaCheckboxes(selectedIds) {
-      const container = document.getElementById('chapter-media-list');
-      if (mediaList.length === 0) {
-        container.innerHTML = 'Aucun média disponible pour l\'instant.';
-        return;
-      }
-      container.innerHTML = mediaList.map(m => `
+      const maps = mediaList.filter(m => m.kind === 'map');
+      const music = mediaList.filter(m => m.kind === 'music');
+      document.getElementById('chapter-maps-checklist').innerHTML = maps.length
+        ? maps.map(m => chapterMediaCheckboxRow(m, selectedIds)).join('')
+        : 'Aucune carte disponible — uploadez-en une ci-dessus.';
+      document.getElementById('chapter-music-checklist').innerHTML = music.length
+        ? music.map(m => chapterMediaCheckboxRow(m, selectedIds)).join('')
+        : 'Aucune musique disponible — uploadez-en une ci-dessus.';
+    }
+
+    function chapterMediaCheckboxRow(m, selectedIds) {
+      return `
         <label style="display:flex;align-items:center;gap:8px;margin-bottom:6px;cursor:pointer;">
-          <input type="checkbox" value="${m.id}" ${selectedIds.includes(m.id) ? 'checked' : ''}>
+          <input type="checkbox" class="chapter-media-checkbox" value="${m.id}" ${selectedIds.includes(m.id) ? 'checked' : ''}>
           <span>${m.kind === 'map' ? '🗺' : '🎵'} ${esc(m.originalName)}</span>
         </label>
-      `).join('');
+      `;
+    }
+
+    // Upload direct depuis le chapitre : ajoute le fichier à la médiathèque puis le coche
+    // automatiquement dans la liste (le lien au chapitre est enregistré à la sauvegarde du formulaire).
+    async function uploadChapterMedia(kind, file) {
+      if (!file) return;
+      const formData = new FormData();
+      formData.append('file', file);
+      try {
+        const res = await fetch(`/api/adventures/${roleplaysId}/media/${kind}`, { method: 'POST', body: formData });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) { showToast(data.error || 'Erreur lors de l\'upload', 'error'); return; }
+        const selectedIds = [...document.querySelectorAll('.chapter-media-checkbox:checked')].map(i => i.value);
+        selectedIds.push(data.id);
+        await loadMedia();
+        renderChapterMediaCheckboxes(selectedIds);
+        showToast(`${kind === 'map' ? 'Carte' : 'Musique'} ajoutée et liée à ce chapitre !`, 'success');
+      } catch {
+        showToast('Impossible de contacter le serveur.', 'error');
+      }
     }
 
     function openChapterModal() {
@@ -830,7 +885,7 @@
       const title = document.getElementById('chapter-title').value.trim();
       if (!title) { showToast('Le titre est requis', 'error'); return; }
       const npcIds = [...document.querySelectorAll('#chapter-npcs-list input[type="checkbox"]:checked')].map(i => i.value);
-      const mediaIds = [...document.querySelectorAll('#chapter-media-list input[type="checkbox"]:checked')].map(i => i.value);
+      const mediaIds = [...document.querySelectorAll('.chapter-media-checkbox:checked')].map(i => i.value);
 
       const payload = { title, gmNotes: document.getElementById('chapter-notes').value.trim(), npcIds, mediaIds };
       const url = editingChapterId ? `/api/adventures/${roleplaysId}/chapters/${editingChapterId}` : `/api/adventures/${roleplaysId}/chapters`;
@@ -862,8 +917,9 @@
 
     document.getElementById('input-map').addEventListener('change', e => uploadMedia('map', e.target.files[0]));
     document.getElementById('input-music').addEventListener('change', e => uploadMedia('music', e.target.files[0]));
+    document.getElementById('input-sprite').addEventListener('change', e => uploadMedia('sprite', e.target.files[0]));
 
-    ['map', 'music'].forEach(kind => {
+    ['map', 'music', 'sprite'].forEach(kind => {
       const zone = document.getElementById(`dropzone-${kind}`);
       zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
       zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
@@ -900,6 +956,7 @@
     function renderMedia() {
       const maps = mediaList.filter(m => m.kind === 'map');
       const music = mediaList.filter(m => m.kind === 'music');
+      const sprites = mediaList.filter(m => m.kind === 'sprite');
 
       document.getElementById('media-grid-map').innerHTML = maps.length
         ? maps.map(renderMediaTile).join('')
@@ -908,11 +965,15 @@
       document.getElementById('media-grid-music').innerHTML = music.length
         ? music.map(renderMediaTile).join('')
         : '<p class="text-muted text-sm">Aucune musique pour l\'instant.</p>';
+
+      document.getElementById('media-grid-sprite').innerHTML = sprites.length
+        ? sprites.map(renderMediaTile).join('')
+        : '<p class="text-muted text-sm">Aucun sprite pour l\'instant.</p>';
     }
 
     function renderMediaTile(m) {
       const fileUrl = `/api/adventures/${roleplaysId}/media/${m.id}/file`;
-      const preview = m.kind === 'map'
+      const preview = (m.kind === 'map' || m.kind === 'sprite')
         ? `<img class="media-tile-thumb" src="${fileUrl}" alt="${esc(m.originalName)}">`
         : `<div class="media-tile-icon">🎵</div>`;
       return `

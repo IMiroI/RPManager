@@ -126,27 +126,45 @@
         <p class="hero-sub">Créez et gérez vos aventures de jeu de rôle. Lancez une session en un clic.</p>
       </div>
 
-      <div id="active-sessions-container" style="display:none;">
-        <div class="active-sessions-bar">
-          <div>
-            <div class="section-title" style="font-size:0.9rem;">Sessions actives</div>
-            <div class="text-sm text-muted">En cours de jeu</div>
+      <div class="tabs" style="margin-top:24px;">
+        <button class="tab-btn active" data-tab="dash-roleplays" onclick="switchDashboardTab('dash-roleplays')">🎭 Mes Roleplays</button>
+        <button class="tab-btn" data-tab="dash-characters" onclick="switchDashboardTab('dash-characters')">🧙 Mes personnages</button>
+      </div>
+
+      <div class="tab-panel active" id="tab-dash-roleplays">
+        <div id="active-sessions-container" style="display:none;">
+          <div class="active-sessions-bar">
+            <div>
+              <div class="section-title" style="font-size:0.9rem;">Sessions actives</div>
+              <div class="text-sm text-muted">En cours de jeu</div>
+            </div>
+            <div class="sessions-list" id="sessions-list"></div>
           </div>
-          <div class="sessions-list" id="sessions-list"></div>
         </div>
+
+        <div class="toolbar">
+          <div>
+            <div class="section-title" id="roleplay-count-label">Chargement...</div>
+            <div class="section-subtitle">Choisissez une histoire pour jouer ou créez-en une nouvelle</div>
+          </div>
+          <button class="btn btn-primary" onclick="openCreateModal()">
+            <span>+</span> Créer un Roleplay
+          </button>
+        </div>
+
+        <div class="roleplay-grid" id="roleplay-grid"></div>
       </div>
 
-      <div class="toolbar">
-        <div>
-          <div class="section-title" id="roleplay-count-label">Chargement...</div>
-          <div class="section-subtitle">Choisissez une histoire pour jouer ou créez-en une nouvelle</div>
+      <div class="tab-panel" id="tab-dash-characters">
+        <div class="toolbar">
+          <div>
+            <div class="section-title" id="my-characters-count-label">Chargement...</div>
+            <div class="section-subtitle">Tous vos personnages, toutes aventures confondues</div>
+          </div>
         </div>
-        <button class="btn btn-primary" onclick="openCreateModal()">
-          <span>+</span> Créer un Roleplay
-        </button>
-      </div>
 
-      <div class="roleplay-grid" id="roleplay-grid"></div>
+        <div class="roleplay-grid" id="my-characters-grid"></div>
+      </div>
     </div>
   </main>
 
@@ -226,6 +244,51 @@
       await fetch('/api/auth/logout', { method: 'POST' });
       window.location.href = '/login';
     });
+
+    // ─── Onglets du dashboard (Roleplays / Mes personnages) ────
+    function switchDashboardTab(tab) {
+      document.querySelectorAll('.tabs .tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `tab-${tab}`));
+    }
+
+    // ─── Gestion de mes personnages (toutes aventures confondues) ────
+    async function loadMyCharacters() {
+      const res = await fetch('/api/adventures/my-characters');
+      if (!res.ok) return;
+      renderMyCharacters(await res.json());
+    }
+
+    function renderMyCharacters(list) {
+      const label = document.getElementById('my-characters-count-label');
+      label.textContent = list.length === 0 ? 'Aucun personnage' : `${list.length} personnage${list.length > 1 ? 's' : ''}`;
+
+      const grid = document.getElementById('my-characters-grid');
+      if (list.length === 0) {
+        grid.innerHTML = `
+          <div class="empty-state" style="grid-column:1/-1;">
+            <div class="empty-state-icon">🧙</div>
+            <div class="empty-state-title">Aucun personnage pour l'instant</div>
+            <p class="empty-state-desc">Rejoignez une Aventure via son lien d'invitation pour créer votre premier personnage.</p>
+          </div>`;
+        return;
+      }
+
+      grid.innerHTML = list.map(c => `
+        <div class="roleplay-card">
+          <div class="roleplay-card-accent" style="background:${c.roleplayThemeColor}"></div>
+          <div class="roleplay-card-body">
+            <div class="roleplay-card-icon">${c.tokenMediaId
+              ? `<img src="/api/adventures/${c.roleplayId}/media/${c.tokenMediaId}/file" style="width:48px;height:48px;object-fit:cover;border-radius:50%;">`
+              : (c.icon || '❓')}</div>
+            <div class="roleplay-card-name">${escHtml(c.name)}</div>
+            <div class="roleplay-card-desc">Aventure : ${escHtml(c.roleplayName)}</div>
+          </div>
+          <div class="roleplay-card-actions">
+            <a href="/adventure/${c.roleplayInviteCode}" class="btn btn-gold btn-sm">▶ Continuer l'aventure</a>
+          </div>
+        </div>
+      `).join('');
+    }
 
     // ─── Render ──────────────────────────────────────
     async function loadRoleplays() {
@@ -417,6 +480,7 @@
       if (!me) return;
       document.getElementById('user-label').textContent = me.username;
       loadRoleplays();
+      loadMyCharacters();
     })();
   </script>
 </body>

@@ -135,21 +135,16 @@
       <audio id="gm-stage-audio" controls style="width:100%;margin-top:12px;display:none;"></audio>
     </div>
 
-    <div class="gm-sidebar-scroll">
-      <div class="gm-section">
-        <div class="gm-section-title">🗺 Chapitres</div>
-        <div id="chapters-sidebar-list"></div>
+    <div class="gm-sidebar-scroll" id="gm-sidebar-tabs">
+      <div class="tabs gm-tabs">
+        <button class="tab-btn active" data-tab="journal">📜 Journal</button>
+        <button class="tab-btn" data-tab="chapitre">🗺 Chapitre</button>
+        <button class="tab-btn" data-tab="musique">🎵 Musique</button>
+        <button class="tab-btn" data-tab="pnj">🧝 PNJ</button>
+        <button class="tab-btn" data-tab="sprites">🎨 Sprites</button>
       </div>
-      <div class="gm-section" id="chapter-assets-section" style="display:none;">
-        <div class="gm-section-title">🖼 Images du chapitre</div>
-        <div id="chapter-maps-list"><p class="text-muted text-sm">Aucune image liée.</p></div>
-        <div class="gm-section-title" style="margin-top:16px;">🎵 Musiques du chapitre</div>
-        <div id="chapter-music-list"><p class="text-muted text-sm">Aucune musique liée.</p></div>
-        <div class="gm-section-title" style="margin-top:16px;">🧝 PNJ du chapitre</div>
-        <div id="chapter-npcs-list"><p class="text-muted text-sm">Aucun PNJ lié.</p></div>
-      </div>
-      <div class="gm-section">
-        <div class="gm-section-title">📜 Journal de groupe</div>
+
+      <div class="tab-panel active" id="tab-journal">
         <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
           <input type="number" class="form-input" id="dice-count" value="1" min="1" max="20" style="width:70px;">
           <span>d</span>
@@ -161,6 +156,41 @@
           <input type="text" class="form-input" id="journal-chat-input" placeholder="Écrire au groupe..." onkeydown="if(event.key==='Enter') sendGroupChat()">
           <button class="btn btn-gold btn-sm" onclick="sendGroupChat()">➤</button>
         </div>
+      </div>
+
+      <div class="tab-panel" id="tab-chapitre">
+        <div class="gm-section-title">🗺 Chapitres</div>
+        <div id="chapters-sidebar-list"></div>
+        <div class="gm-section-title" style="margin-top:16px;">🖼 Images du chapitre</div>
+        <div style="margin-bottom:8px;">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('live-chapter-map-input').click()">+ Uploader une carte</button>
+          <input type="file" id="live-chapter-map-input" accept="image/png,image/jpeg,image/webp" style="display:none;" onchange="uploadAndLinkChapterMedia('map', this.files[0])">
+        </div>
+        <div id="chapter-maps-list"><p class="text-muted text-sm">Sélectionnez d'abord un chapitre.</p></div>
+      </div>
+
+      <div class="tab-panel" id="tab-musique">
+        <div class="gm-section-title">🎵 Musiques du chapitre</div>
+        <div style="margin-bottom:8px;">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('live-chapter-music-input').click()">+ Uploader une musique</button>
+          <input type="file" id="live-chapter-music-input" accept="audio/mpeg,audio/mp3,audio/ogg,audio/wav" style="display:none;" onchange="uploadAndLinkChapterMedia('music', this.files[0])">
+        </div>
+        <div id="chapter-music-list"><p class="text-muted text-sm">Sélectionnez d'abord un chapitre.</p></div>
+      </div>
+
+      <div class="tab-panel" id="tab-pnj">
+        <div class="gm-section-title">🧝 PNJ du chapitre</div>
+        <div id="chapter-npcs-list"><p class="text-muted text-sm">Sélectionnez d'abord un chapitre.</p></div>
+      </div>
+
+      <div class="tab-panel" id="tab-sprites">
+        <div class="gm-section-title">🎨 Sprites (décor)</div>
+        <div style="margin-bottom:8px;">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('sprite-upload-input').click()">+ Uploader un sprite</button>
+          <input type="file" id="sprite-upload-input" accept="image/png" style="display:none;" onchange="uploadSprite(this.files[0])">
+        </div>
+        <input type="text" class="form-input" id="sprite-search-input" placeholder="Rechercher un sprite..." oninput="renderSpriteList(this.value)" style="margin-bottom:8px;">
+        <div id="sprite-list"><p class="text-muted text-sm">Aucun sprite pour l'instant.</p></div>
       </div>
     </div>
   </div>
@@ -203,23 +233,6 @@
     </div>
   </div>
 
-  <!-- Message privé modal -->
-  <div class="modal-overlay" id="msg-modal">
-    <div class="modal">
-      <div class="modal-header">
-        <h3 class="modal-title" id="msg-modal-title">Message privé</h3>
-        <button class="modal-close" onclick="closeMsgModal()">✕</button>
-      </div>
-      <div class="modal-body">
-        <p class="text-muted text-sm" id="msg-offline-notice" style="display:none;">⚠ Ce joueur n'est pas connecté actuellement — votre message sera visible à sa prochaine connexion.</p>
-        <div id="msg-thread" style="max-height:320px;overflow-y:auto;margin-bottom:16px;"></div>
-        <div style="display:flex;gap:8px;">
-          <input type="text" class="form-input" id="msg-input" placeholder="Votre message..." maxlength="1000">
-          <button class="btn btn-primary" onclick="sendGmMessage()">Envoyer</button>
-        </div>
-      </div>
-    </div>
-  </div>
 
   <div class="toast-container" id="toast-container"></div>
 
@@ -230,8 +243,6 @@
     let gmState = null;
     let mediaList = [];
     let editingCharacterId = null;
-    let openMsgCharacterId = null;
-    const unreadByCharacter = new Map();
 
     socket.on('connect', () => {
       socket.emit('adv:gm:connect', { roleplayId });
@@ -249,7 +260,7 @@
 
     socket.on('adv:gm:diceResult', () => {}); // le résultat arrive aussi via adv:journal:entry (journal de groupe)
 
-    socket.on('adv:gm:playerJoined', ({ name }) => showToast(`${name} a rejoint la séance`, 'success'));
+    socket.on('adv:gm:playerJoined', ({ names }) => showToast(`${(names || []).join(', ')} a rejoint la séance`, 'success'));
     socket.on('adv:gm:playerLeft', () => showToast('Un joueur s\'est déconnecté', 'info'));
 
     socket.on('adv:skill:result', (result) => {
@@ -258,7 +269,7 @@
 
     socket.on('adv:journal:entry', (entry) => appendJournalEntry(entry));
 
-    socket.on('adv:token:position', ({ characterId, kind, x, y, final }) => updateTokenPosition(characterId, kind, x, y, final));
+    socket.on('adv:token:position', ({ characterId, kind, x, y, final, spriteMediaId }) => updateTokenPosition(characterId, kind, x, y, final, spriteMediaId));
 
     socket.on('adv:token:rotated', ({ characterId, rotation }) => {
       const existing = currentTokenPositions.find(p => p.characterId === characterId);
@@ -274,20 +285,13 @@
       renderTokenBadges();
     });
 
-    socket.on('adv:gm:playerMessage', ({ characterId, name, message }) => {
-      if (openMsgCharacterId === characterId) {
-        appendMsgToThread(message);
-      } else {
-        unreadByCharacter.set(characterId, (unreadByCharacter.get(characterId) || 0) + 1);
-        renderCharacters();
-        showToast(`💬 ${name} : ${message.text}`, 'info');
-      }
-    });
+    socket.on('adv:gm:playerMessage', ({ name, message }) => showToast(`💬 ${name} : ${message.text}`, 'info'));
 
     async function loadMedia() {
       const res = await fetch(`/api/adventures/${roleplayId}/media`);
       if (res.ok) mediaList = await res.json();
       if (gmState) { renderStage(); renderChapterAssets(); }
+      renderSpriteList(document.getElementById('sprite-search-input')?.value || '');
     }
 
     let selectedChapterId = null;
@@ -398,6 +402,57 @@
     new ResizeObserver(applyZoom).observe(document.getElementById('gm-stage-container'));
     applyZoom();
 
+    // Zoom à la molette (comme le curseur, recentré sur la vue actuelle).
+    document.getElementById('gm-stage-container').addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const slider = document.getElementById('zoom-slider');
+      const newValue = Math.min(300, Math.max(50, parseInt(slider.value) - Math.sign(e.deltaY) * 10));
+      slider.value = newValue;
+      onZoomInput(newValue);
+    }, { passive: false });
+
+    // Maintenir le clic sur la carte pour la déplacer (pan) quand elle est zoomée.
+    let mapPanning = null;
+
+    function onMapPanPointerDown(e) {
+      if (e.button !== 0 || e.target.closest('.token')) return; // laisse le glisser-déposer du token gérer ce cas
+      e.preventDefault();
+      const scrollEl = document.getElementById('gm-stage-scroll');
+      mapPanning = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, startScrollLeft: scrollEl.scrollLeft, startScrollTop: scrollEl.scrollTop };
+      scrollEl.setPointerCapture(e.pointerId);
+      scrollEl.classList.add('panning');
+    }
+
+    function onMapPanPointerMove(e) {
+      if (!mapPanning || e.pointerId !== mapPanning.pointerId) return;
+      const scrollEl = document.getElementById('gm-stage-scroll');
+      scrollEl.scrollLeft = mapPanning.startScrollLeft - (e.clientX - mapPanning.startX);
+      scrollEl.scrollTop = mapPanning.startScrollTop - (e.clientY - mapPanning.startY);
+    }
+
+    function onMapPanPointerUp(e) {
+      if (!mapPanning || e.pointerId !== mapPanning.pointerId) return;
+      document.getElementById('gm-stage-scroll').classList.remove('panning');
+      mapPanning = null;
+    }
+
+    const gmStageScrollEl = document.getElementById('gm-stage-scroll');
+    gmStageScrollEl.addEventListener('pointerdown', onMapPanPointerDown);
+    gmStageScrollEl.addEventListener('pointermove', onMapPanPointerMove);
+    gmStageScrollEl.addEventListener('pointerup', onMapPanPointerUp);
+    gmStageScrollEl.addEventListener('pointercancel', onMapPanPointerUp);
+
+    // ─── Onglets du panneau latéral (Journal / Chapitre / Musique / PNJ) ────
+    document.querySelectorAll('#gm-sidebar-tabs .tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const group = document.getElementById('gm-sidebar-tabs');
+        group.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        group.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
+      });
+    });
+
     function renderStage() {
       const media = document.getElementById('gm-stage-media');
       const previousMediaId = currentMediaId;
@@ -440,6 +495,14 @@
       const layer = document.getElementById('gm-token-layer');
       if (!currentMediaId) { layer.innerHTML = ''; return; }
       layer.innerHTML = positions.map(p => {
+        if (p.kind === 'sprite') {
+          const selected = selectedToken && selectedToken.characterId === p.characterId ? ' selected' : '';
+          return `
+            <div class="token sprite-token${selected}" data-character-id="${p.characterId}" data-kind="sprite" style="left:${p.x}%;top:${p.y}%;transform:translate(-50%,-50%) rotate(${p.rotation || 0}deg);">
+              <img src="/api/adventures/${roleplayId}/media/${p.spriteMediaId}/file">
+            </div>
+          `;
+        }
         const entity = findTokenEntity(p.characterId, p.kind);
         if (!entity) return '';
         const visual = entity.tokenMediaId
@@ -447,7 +510,7 @@
           : (entity.icon || '❓');
         const selected = selectedToken && selectedToken.characterId === p.characterId ? ' selected' : '';
         return `
-          <div class="token${selected}" data-character-id="${p.characterId}" data-kind="${p.kind || 'character'}" style="left:${p.x}%;top:${p.y}%;transform:translate(-50%,-50%) rotate(${p.rotation || 0}deg);">
+          <div class="token${selected}" data-character-id="${p.characterId}" data-kind="${p.kind || 'character'}" style="left:${p.x}%;top:${p.y}%;transform:translate(-50%,-50%) rotate(${p.rotation || 0}deg);--token-color:${entity.tokenColor || '#c9a227'};">
             ${visual}
             <span class="token-label">${esc(entity.name)}</span>
           </div>
@@ -493,8 +556,9 @@
     function snapToGrid(x, y) {
       const rect = document.getElementById('gm-zoom-content').getBoundingClientRect();
       if (!rect.width || !rect.height) return { x, y };
-      const snappedPxX = Math.round((x / 100) * rect.width / cellPx) * cellPx;
-      const snappedPxY = Math.round((y / 100) * rect.height / cellPx) * cellPx;
+      // Aimante au CENTRE de la case (pas à l'intersection des lignes de la grille).
+      const snappedPxX = (Math.floor((x / 100) * rect.width / cellPx) + 0.5) * cellPx;
+      const snappedPxY = (Math.floor((y / 100) * rect.height / cellPx) + 0.5) * cellPx;
       return {
         x: Math.min(100, Math.max(0, (snappedPxX / rect.width) * 100)),
         y: Math.min(100, Math.max(0, (snappedPxY / rect.height) * 100))
@@ -531,7 +595,7 @@
       else selectToken(characterId, kind);
     }
 
-    function updateTokenPosition(characterId, kind, x, y, final) {
+    function updateTokenPosition(characterId, kind, x, y, final, spriteMediaId) {
       const el = document.querySelector(`#gm-token-layer .token[data-character-id="${characterId}"]`);
       if (!final) {
         // Mouvement en direct : mise à jour légère si le token existe déjà, pas de re-rendu complet.
@@ -544,8 +608,8 @@
       // Dépôt final : peut être un tout nouveau token (jamais placé) — on met à jour le cache
       // et on re-rend entièrement pour qu'il apparaisse, pas seulement déplacé.
       const existing = currentTokenPositions.find(p => p.characterId === characterId);
-      if (existing) { existing.x = x; existing.y = y; existing.kind = kind; }
-      else currentTokenPositions.push({ characterId, kind, x, y, rotation: 0 });
+      if (existing) { existing.x = x; existing.y = y; existing.kind = kind; if (spriteMediaId) existing.spriteMediaId = spriteMediaId; }
+      else currentTokenPositions.push({ characterId, kind, x, y, rotation: 0, spriteMediaId });
       renderTokens(currentTokenPositions);
     }
 
@@ -568,7 +632,7 @@
 
     function renderTokenBadges() {
       const bar = document.getElementById('gm-token-badges');
-      if (!selectedToken) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
+      if (!selectedToken || selectedToken.kind === 'sprite') { bar.style.display = 'none'; bar.innerHTML = ''; return; }
       const entity = findTokenEntity(selectedToken.characterId, selectedToken.kind);
       if (!entity) { selectedToken = null; bar.style.display = 'none'; bar.innerHTML = ''; return; }
       const skills = selectedToken.kind === 'npc'
@@ -660,11 +724,44 @@
       renderChapterAssets();
     }
 
-    function renderChapterAssets() {
-      const section = document.getElementById('chapter-assets-section');
+    // Upload direct pendant la séance (si le MJ a oublié une carte/musique) : ajoute le fichier
+    // à la médiathèque et le lie immédiatement au chapitre sélectionné, sans repasser par l'éditeur.
+    async function uploadAndLinkChapterMedia(kind, file) {
+      if (!file) return;
       const chapter = (gmState.chapters || []).find(c => c.id === selectedChapterId);
-      if (!chapter) { section.style.display = 'none'; return; }
-      section.style.display = '';
+      if (!chapter) { showToast('Sélectionnez d\'abord un chapitre.', 'error'); return; }
+
+      const formData = new FormData();
+      formData.append('file', file);
+      try {
+        const uploadRes = await fetch(`/api/adventures/${roleplayId}/media/${kind}`, { method: 'POST', body: formData });
+        const media = await uploadRes.json().catch(() => ({}));
+        if (!uploadRes.ok) { showToast(media.error || 'Erreur lors de l\'upload', 'error'); return; }
+
+        const newMediaIds = [...(chapter.mediaIds || []), media.id];
+        const updateRes = await fetch(`/api/adventures/${roleplayId}/chapters/${selectedChapterId}`, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mediaIds: newMediaIds })
+        });
+        if (!updateRes.ok) { showToast('Erreur lors de la liaison au chapitre', 'error'); return; }
+        chapter.mediaIds = newMediaIds;
+
+        await loadMedia();
+        showToast(`${kind === 'map' ? 'Carte' : 'Musique'} ajoutée et liée au chapitre !`, 'success');
+      } catch {
+        showToast('Impossible de contacter le serveur.', 'error');
+      }
+    }
+
+    function renderChapterAssets() {
+      const chapter = (gmState.chapters || []).find(c => c.id === selectedChapterId);
+      if (!chapter) {
+        const placeholder = '<p class="text-muted text-sm">Sélectionnez d\'abord un chapitre dans l\'onglet Chapitre.</p>';
+        document.getElementById('chapter-maps-list').innerHTML = placeholder;
+        document.getElementById('chapter-music-list').innerHTML = placeholder;
+        document.getElementById('chapter-npcs-list').innerHTML = placeholder;
+        return;
+      }
 
       const maps = mediaList.filter(m => m.kind === 'map' && (chapter.mediaIds || []).includes(m.id));
       const music = mediaList.filter(m => m.kind === 'music' && (chapter.mediaIds || []).includes(m.id));
@@ -702,6 +799,39 @@
     function playMusic(mediaId) { socket.emit('adv:gm:playMusic', { roleplayId, mediaId }); }
     function pauseMusic() { socket.emit('adv:gm:pauseMusic', { roleplayId }); }
 
+    // ─── Sprites de décor (posés sur la carte comme des tokens, mais sans contour) ────
+    function renderSpriteList(filter) {
+      const container = document.getElementById('sprite-list');
+      const f = (filter || '').toLowerCase();
+      const sprites = mediaList.filter(m => m.kind === 'sprite' && m.originalName.toLowerCase().includes(f));
+      container.innerHTML = sprites.length ? sprites.map(m => `
+        <div class="chapter-media-row" onclick="placeSprite('${m.id}')" title="Cliquer pour poser sur la carte">
+          <img class="chapter-media-thumb" src="/api/adventures/${roleplayId}/media/${m.id}/file">
+          <span class="text-sm">${esc(m.originalName)}</span>
+        </div>
+      `).join('') : '<p class="text-muted text-sm">Aucun sprite trouvé.</p>';
+    }
+
+    async function uploadSprite(file) {
+      if (!file) return;
+      const formData = new FormData();
+      formData.append('file', file);
+      try {
+        const res = await fetch(`/api/adventures/${roleplayId}/media/sprite`, { method: 'POST', body: formData });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) { showToast(data.error || 'Erreur lors de l\'upload', 'error'); return; }
+        await loadMedia();
+        showToast('Sprite ajouté !', 'success');
+      } catch {
+        showToast('Impossible de contacter le serveur.', 'error');
+      }
+    }
+
+    function placeSprite(spriteMediaId) {
+      if (!currentMediaId) { showToast('Affichez d\'abord une carte.', 'error'); return; }
+      socket.emit('adv:sprite:place', { roleplayId, spriteMediaId });
+    }
+
     function renderCharacters() {
       const list = document.getElementById('characters-list');
       const characters = gmState.characters || [];
@@ -709,7 +839,7 @@
         list.innerHTML = '<p class="text-muted text-sm">Aucun joueur n\'a encore créé de personnage.</p>';
         return;
       }
-      const connectedIds = new Set(gmState.connectedPlayers.map(p => p.characterId));
+      const connectedIds = new Set(gmState.connectedPlayers.flatMap(p => (p.characters || []).map(c => c.id)));
       const placedIds = new Set((gmState.tokenPositions || []).map(p => p.characterId));
       list.innerHTML = characters.map(c => `
         <div class="player-chip">
@@ -720,9 +850,6 @@
           <div class="player-chip-name" title="${esc(c.name)}">${esc(c.name)}</div>
           <div class="text-muted text-sm" style="margin-bottom:8px;">${esc(c.playerUsername || '?')}</div>
           <div class="player-chip-actions">
-            <button class="btn btn-secondary btn-sm" style="position:relative;" onclick="openMsgModal('${c.id}', '${esc(c.name)}')">
-              💬${unreadByCharacter.get(c.id) ? `<span style="position:absolute;top:-4px;right:-4px;background:var(--danger);color:#fff;border-radius:50%;font-size:0.6rem;font-weight:800;width:15px;height:15px;display:inline-flex;align-items:center;justify-content:center;">${unreadByCharacter.get(c.id)}</span>` : ''}
-            </button>
             <button class="btn btn-ghost btn-sm" onclick="openCharEditModal('${c.id}')">✏</button>
             ${!placedIds.has(c.id) ? `<button class="btn btn-gold btn-sm" onclick="placeTokenOnMap('${c.id}','character')" title="Placer sur la carte">📍</button>` : ''}
           </div>
@@ -840,7 +967,7 @@
     }
 
     function formatJournalEntry(e) {
-      if (e.kind === 'chat') return esc(e.text);
+      if (e.kind === 'chat') return (e.mp ? '<strong class="text-muted">MP</strong> - ' : '') + esc(e.text);
       if (e.kind === 'skill') return `🎲 <strong>${esc(e.skillName)}</strong> : 1d100=${e.percentile} · 1d${e.diceSides}=<strong>${e.skillRoll}</strong>${e.visibility === 'gm' ? ' <span class="text-muted text-sm">(caché des joueurs)</span>' : ''}`;
       if (e.kind === 'dice') return `🎲 ${e.count}d${e.sides} → ${e.rolls.join(', ')} = <strong>${e.total}</strong>`;
       return '';
@@ -882,48 +1009,6 @@
       input.value = '';
     }
 
-    // ─── Messagerie privée ────────────────────────────
-    function openMsgModal(characterId, name) {
-      openMsgCharacterId = characterId;
-      unreadByCharacter.delete(characterId);
-      renderCharacters();
-
-      document.getElementById('msg-modal-title').textContent = `Message privé — ${name}`;
-      const connected = gmState.connectedPlayers.some(p => p.characterId === characterId);
-      document.getElementById('msg-offline-notice').style.display = connected ? 'none' : 'block';
-
-      const character = (gmState.characters || []).find(c => c.id === characterId);
-      const thread = document.getElementById('msg-thread');
-      thread.innerHTML = '';
-      (character?.messages || []).forEach(appendMsgToThread);
-
-      document.getElementById('msg-input').value = '';
-      document.getElementById('msg-modal').classList.add('open');
-    }
-
-    function closeMsgModal() {
-      openMsgCharacterId = null;
-      document.getElementById('msg-modal').classList.remove('open');
-    }
-
-    function appendMsgToThread(msg) {
-      const thread = document.getElementById('msg-thread');
-      const bubble = document.createElement('div');
-      bubble.style.cssText = `margin-bottom:8px;padding:8px 12px;border-radius:var(--radius-sm);max-width:80%;${msg.from === 'gm' ? 'background:var(--accent);margin-left:auto;' : 'background:var(--surface);border:1px solid var(--border);'}`;
-      bubble.textContent = msg.text;
-      thread.appendChild(bubble);
-      thread.scrollTop = thread.scrollHeight;
-    }
-
-    function sendGmMessage() {
-      const input = document.getElementById('msg-input');
-      const text = input.value.trim();
-      if (!text || !openMsgCharacterId) return;
-      socket.emit('adv:gm:message', { roleplayId, characterId: openMsgCharacterId, text });
-      appendMsgToThread({ text, from: 'gm' });
-      input.value = '';
-    }
-
     function esc(s) {
       return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
@@ -936,9 +1021,6 @@
       setTimeout(() => t.remove(), 3200);
     }
 
-    document.getElementById('msg-input').addEventListener('keydown', e => {
-      if (e.key === 'Enter') sendGmMessage();
-    });
 
     loadMedia();
   </script>

@@ -230,10 +230,37 @@ function notifyAdventureCharacterUpdate(roleplayId, character) {
   const seance = adventureEngine.getSeance(roleplayId);
   if (!seance) return;
   for (const [socketId, info] of seance.connectedPlayers) {
-    if (info.characterId === character.id) {
+    if (info.characters?.some(c => c.id === character.id)) {
       io.to(socketId).emit('adv:player:characterUpdated', character);
     }
   }
+}
+
+// Message privé d'un joueur vers le MJ (seul canal privé restant : "/mp message" dans le chat
+// de groupe). Persisté comme avant (AdventureCharacter.messages) pour l'historique, et incrusté
+// comme entrée de journal 'private' — visible uniquement du MJ et de ce joueur (jamais des autres
+// joueurs), affichée avec le préfixe "MP" et le token de son auteur.
+async function sendPrivateJournalMessage(roleplayId, characterId, text) {
+  const character = await adv.appendPrivateMessage(roleplayId, characterId, text, 'player');
+  if (!character) return null;
+  const msg = character.messages[character.messages.length - 1];
+  const seance = adventureEngine.getSeance(roleplayId);
+
+  if (seance) {
+    const entry = adventureEngine.addJournalEntry(seance, {
+      kind: 'chat', visibility: 'private', counterpartCharacterId: characterId, mp: true, text,
+      authorName: character.name, authorIcon: character.icon || '❓', authorTokenMediaId: character.tokenMediaId || null
+    });
+    io.to(`adv-gm:${roleplayId}`).emit('adv:journal:entry', entry);
+    for (const [socketId, info] of seance.connectedPlayers) {
+      if (info.characters?.some(c => c.id === characterId)) { io.to(socketId).emit('adv:journal:entry', entry); break; }
+    }
+  }
+
+  io.to(`adv-gm:${roleplayId}`).emit('adv:gm:playerMessage', { characterId, name: character.name, message: msg });
+  io.to(`adv-gm:${roleplayId}`).emit('adv:gm:state', await buildAdventureGmState(roleplayId));
+
+  return { character, msg };
 }
 
 // ─── Socket.io ───────────────────────────────────────
@@ -549,7 +576,7 @@ io.on('connection', (socket) => {
   // ═══════════════════════════════════════════════════
   let advRoleplayId = null;
   let advRole = null; // 'gm' | 'player'
-  let advCharacterId = null;
+  let advCharacterIds = new Set(); // un joueur peut jouer plusieurs personnages simultanément sur une même aventure
 
   function getAdvUserId() {
     return socket.request.session?.userId || null;
@@ -682,56 +709,59 @@ io.on('connection', (socket) => {
   });
 
   // ─── Journal de groupe : chat visible par le MJ et tous les joueurs connectés ───
-  socket.on('adv:chat:send', ({ roleplayId, text }) => {
+  // Un joueur pouvant contrôler plusieurs personnages simultanément, il précise avec lequel il
+  // parle (characterId) — le message est attribué à ce personnage-là (nom/token affichés).
+  socket.on('adv:chat:send', async ({ roleplayId, text, characterId }) => {
     if (!advRole || advRoleplayId !== roleplayId) return;
     if (typeof text !== 'string' || !text.trim()) return;
     const safeText = text.trim().slice(0, 500);
     const seance = adventureEngine.getSeance(roleplayId);
     if (!seance) return;
 
+    if (advRole === 'player' && !advCharacterIds.has(characterId)) return;
+
+    // "/mp message" depuis le chat global : envoie un message privé au MJ au lieu de le diffuser
+    // à tout le monde — incrusté dans le journal (préfixe "MP"), visible seulement du MJ et de soi.
+    if (advRole === 'player') {
+      const mpMatch = /^\/mp\s+(.+)$/i.exec(safeText);
+      if (mpMatch) {
+        const mpText = mpMatch[1].trim().slice(0, 500);
+        if (mpText) await sendPrivateJournalMessage(roleplayId, characterId, mpText);
+        return;
+      }
+    }
+
     const author = advRole === 'gm'
       ? { authorName: 'MJ', authorIcon: '🎭', authorTokenMediaId: null }
       : (() => {
           const info = seance.connectedPlayers.get(socket.id);
-          return { authorName: info?.name || 'Joueur', authorIcon: info?.icon || '❓', authorTokenMediaId: info?.tokenMediaId || null };
+          const c = info?.characters.find(ch => ch.id === characterId);
+          return { authorName: c?.name || 'Joueur', authorIcon: c?.icon || '❓', authorTokenMediaId: c?.tokenMediaId || null };
         })();
 
     const entry = adventureEngine.addJournalEntry(seance, { kind: 'chat', visibility: 'public', text: safeText, ...author });
     io.to(`adv-gm:${roleplayId}`).to(`adv-players:${roleplayId}`).emit('adv:journal:entry', entry);
   });
 
-  socket.on('adv:gm:message', async ({ roleplayId, characterId, text }) => {
-    if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
-    if (typeof text !== 'string' || !text.trim()) return;
-    const safeText = text.trim().slice(0, 1000);
-
-    const character = await adv.appendPrivateMessage(roleplayId, characterId, safeText, 'gm');
-    if (!character) return;
-    const msg = character.messages[character.messages.length - 1];
-
-    const seance = adventureEngine.getSeance(roleplayId);
-    if (seance) {
-      for (const [socketId, info] of seance.connectedPlayers) {
-        if (info.characterId === characterId) { io.to(socketId).emit('adv:player:privateMessage', msg); break; }
-      }
-    }
-    socket.emit('adv:gm:state', await buildAdventureGmState(roleplayId));
-  });
-
   // ─── Joueur ──────────────────────────────────────────
+  // Un joueur peut avoir plusieurs personnages sur une même aventure et les jouer simultanément :
+  // un seul join charge la liste complète, le client choisit ensuite lequel anime/parle/lance.
   socket.on('adv:player:join', async ({ roleplayId }) => {
     const userId = getAdvUserId();
     if (!userId) return socket.emit('adv:error', 'Non authentifié');
-    const character = await adv.getCharacter(roleplayId, userId);
-    if (!character) return socket.emit('adv:error', 'Aucun personnage sur cette aventure');
+    const characters = await adv.listCharactersForPlayer(roleplayId, userId);
+    if (!characters.length) return socket.emit('adv:error', 'Aucun personnage sur cette aventure');
     const seance = adventureEngine.getSeance(roleplayId);
     if (!seance) return socket.emit('adv:error', 'Aucune séance en cours');
 
     advRoleplayId = roleplayId;
     advRole = 'player';
-    advCharacterId = character.id;
+    advCharacterIds = new Set(characters.map(c => c.id));
     socket.join(`adv-players:${roleplayId}`);
-    seance.connectedPlayers.set(socket.id, { userId, characterId: character.id, name: character.name, icon: character.icon, tokenMediaId: character.tokenMediaId });
+    seance.connectedPlayers.set(socket.id, {
+      userId,
+      characters: characters.map(c => ({ id: c.id, name: c.name, icon: c.icon, tokenMediaId: c.tokenMediaId }))
+    });
 
     const roleplayDoc = await Roleplay.findById(roleplayId);
     const chapter = (roleplayDoc?.chapters || []).find(c => c.id === seance.currentChapterId)
@@ -744,7 +774,7 @@ io.on('connection', (socket) => {
       : null;
 
     socket.emit('adv:player:state', {
-      character,
+      characters,
       chapterTitle: chapter?.title || null,
       nowShowing,
       nowPlaying: seance.nowPlaying,
@@ -752,15 +782,18 @@ io.on('connection', (socket) => {
       partyMembers,
       npcRoster,
       gridSize: roleplayDoc?.gridSize || 20,
-      journal: (seance.journal || []).filter(e => e.visibility === 'public')
+      journal: (seance.journal || []).filter(e => e.visibility === 'public' || (e.visibility === 'private' && advCharacterIds.has(e.counterpartCharacterId))),
+      connectedCount: seance.connectedPlayers.size
     });
 
-    io.to(`adv-gm:${roleplayId}`).emit('adv:gm:playerJoined', { characterId: character.id, name: character.name });
+    io.to(`adv-gm:${roleplayId}`).emit('adv:gm:playerJoined', { names: characters.map(c => c.name) });
     io.to(`adv-gm:${roleplayId}`).emit('adv:gm:state', await buildAdventureGmState(roleplayId));
+    io.to(`adv-players:${roleplayId}`).emit('adv:player:connectedCount', { count: seance.connectedPlayers.size });
   });
 
-  socket.on('adv:player:rollDice', ({ roleplayId, count, sides }) => {
+  socket.on('adv:player:rollDice', ({ roleplayId, count, sides, characterId }) => {
     if (advRole !== 'player' || advRoleplayId !== roleplayId) return;
+    if (!advCharacterIds.has(characterId)) return;
     const result = adventureEngine.rollDice(count, sides);
     socket.emit('adv:player:diceResult', result);
     io.to(`adv-gm:${roleplayId}`).emit('adv:gm:diceResult', result);
@@ -768,9 +801,10 @@ io.on('connection', (socket) => {
     const seance = adventureEngine.getSeance(roleplayId);
     if (seance) {
       const info = seance.connectedPlayers.get(socket.id);
+      const c = info?.characters.find(ch => ch.id === characterId);
       const entry = adventureEngine.addJournalEntry(seance, {
         kind: 'dice', visibility: 'public',
-        authorName: info?.name || 'Joueur', authorIcon: info?.icon || '❓', authorTokenMediaId: info?.tokenMediaId || null,
+        authorName: c?.name || 'Joueur', authorIcon: c?.icon || '❓', authorTokenMediaId: c?.tokenMediaId || null,
         count: result.count, sides: result.sides, rolls: result.rolls, total: result.total
       });
       io.to(`adv-gm:${roleplayId}`).to(`adv-players:${roleplayId}`).emit('adv:journal:entry', entry);
@@ -782,7 +816,7 @@ io.on('connection', (socket) => {
   // le joueur uniquement les siennes — jamais celles d'un PNJ.
   socket.on('adv:skill:roll', async ({ roleplayId, characterId, kind, skillId }) => {
     const isGm = advRole === 'gm' && advRoleplayId === roleplayId;
-    const isOwner = advRole === 'player' && advRoleplayId === roleplayId && advCharacterId === characterId;
+    const isOwner = advRole === 'player' && advRoleplayId === roleplayId && advCharacterIds.has(characterId);
 
     if (kind === 'npc') {
       if (!isGm) return;
@@ -853,37 +887,28 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('adv:player:sendMessage', async ({ roleplayId, text }) => {
-    if (advRole !== 'player' || advRoleplayId !== roleplayId) return;
-    if (typeof text !== 'string' || !text.trim()) return;
-    const safeText = text.trim().slice(0, 1000);
-
-    const character = await adv.appendPrivateMessage(roleplayId, advCharacterId, safeText, 'player');
-    if (!character) return;
-    const msg = character.messages[character.messages.length - 1];
-
-    io.to(`adv-gm:${roleplayId}`).emit('adv:gm:playerMessage', { characterId: advCharacterId, name: character.name, message: msg });
-    io.to(`adv-gm:${roleplayId}`).emit('adv:gm:state', await buildAdventureGmState(roleplayId));
-  });
 
   socket.on('adv:player:requestState', async ({ roleplayId }) => {
     if (advRole !== 'player' || advRoleplayId !== roleplayId) return;
-    const character = await adv.getCharacterById(roleplayId, advCharacterId);
+    const userId = getAdvUserId();
+    if (!userId) return;
+    const characters = await adv.listCharactersForPlayer(roleplayId, userId);
     const seance = adventureEngine.getSeance(roleplayId);
-    if (!character || !seance) return;
+    if (!characters.length || !seance) return;
     const roleplayDoc = await Roleplay.findById(roleplayId).select('gridSize');
     const tokenPositions = seance.nowShowing ? await adv.getMapTokenPositions(roleplayId, seance.nowShowing.mediaId) : [];
     const partyMembers = await adv.listPartyMembers(roleplayId);
     const npcRoster = await adv.listNpcRoster(roleplayId);
     socket.emit('adv:player:state', {
-      character,
+      characters,
       nowShowing: seance.nowShowing,
       nowPlaying: seance.nowPlaying,
       tokenPositions,
       partyMembers,
       npcRoster,
       gridSize: roleplayDoc?.gridSize || 20,
-      journal: (seance.journal || []).filter(e => e.visibility === 'public')
+      journal: (seance.journal || []).filter(e => e.visibility === 'public' || (e.visibility === 'private' && advCharacterIds.has(e.counterpartCharacterId))),
+      connectedCount: seance.connectedPlayers.size
     });
   });
 
@@ -897,12 +922,12 @@ io.on('connection', (socket) => {
   });
 
   // ─── Token (déplacement sur la carte, façon Roll20) ─────────
-  // Autorisation : le MJ peut déplacer n'importe quel token (PNJ ou personnage),
-  // le joueur uniquement le token de son propre personnage — jamais un PNJ.
+  // Autorisation : le MJ peut déplacer n'importe quel token (PNJ ou personnage), le joueur
+  // uniquement le token de l'un de ses propres personnages (il peut en jouer plusieurs) — jamais un PNJ.
   function canMoveToken(roleplayId, characterId, kind) {
     if (advRole === 'gm' && advRoleplayId === roleplayId) return true;
     if (kind === 'npc') return false;
-    if (advRole === 'player' && advRoleplayId === roleplayId && advCharacterId === characterId) return true;
+    if (advRole === 'player' && advRoleplayId === roleplayId && advCharacterIds.has(characterId)) return true;
     return false;
   }
 
@@ -917,6 +942,20 @@ io.on('connection', (socket) => {
     if (!seance || !seance.nowShowing) return;
     await adv.setTokenPosition(roleplayId, seance.nowShowing.mediaId, characterId, x, y, kind);
     io.to(`adv-players:${roleplayId}`).to(`adv-gm:${roleplayId}`).emit('adv:token:position', { characterId, kind, x, y, final: true });
+  });
+
+  // Pose un nouveau sprite de décor sur la carte affichée (MJ uniquement) — un id d'instance est
+  // généré côté serveur pour permettre de poser plusieurs fois le même sprite sur une même carte.
+  socket.on('adv:sprite:place', async ({ roleplayId, spriteMediaId }) => {
+    if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
+    if (!spriteMediaId) return;
+    const seance = adventureEngine.getSeance(roleplayId);
+    if (!seance || !seance.nowShowing) return;
+    const instanceId = `sprite_${randomBytes(6).toString('hex')}`;
+    await adv.setTokenPosition(roleplayId, seance.nowShowing.mediaId, instanceId, 50, 50, 'sprite', spriteMediaId);
+    io.to(`adv-players:${roleplayId}`).to(`adv-gm:${roleplayId}`).emit('adv:token:position', {
+      characterId: instanceId, kind: 'sprite', spriteMediaId, x: 50, y: 50, final: true
+    });
   });
 
   // Rotation discrète du token (touches Ctrl + flèches côté client)
@@ -944,7 +983,8 @@ io.on('connection', (socket) => {
     const seance = adventureEngine.getSeance(advRoleplayId);
     if (!seance) return;
     seance.connectedPlayers.delete(socket.id);
-    io.to(`adv-gm:${advRoleplayId}`).emit('adv:gm:playerLeft', { characterId: advCharacterId });
+    io.to(`adv-gm:${advRoleplayId}`).emit('adv:gm:playerLeft', { characterIds: [...advCharacterIds] });
+    io.to(`adv-players:${advRoleplayId}`).emit('adv:player:connectedCount', { count: seance.connectedPlayers.size });
   });
 });
 

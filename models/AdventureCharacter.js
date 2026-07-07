@@ -31,6 +31,7 @@ const adventureCharacterSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },
   icon: { type: String, default: '❓' },
   tokenMediaId: { type: String, default: null },
+  tokenColor: { type: String, default: '#c9a227' }, // couleur du contour du token sur la carte
   backstory: { type: String, default: '' },
   skills: { type: [skillSchema], default: [] },
   // Statistiques libres : clés définies par le MJ (roleplay.statDefinitions), valeurs numériques.
@@ -43,7 +44,8 @@ const adventureCharacterSchema = new mongoose.Schema({
 // planter les futures écritures sur doc.stats[key] (doc.stats deviendrait undefined).
 }, { timestamps: { createdAt: 'createdAt', updatedAt: 'updatedAt' }, minimize: false });
 
-adventureCharacterSchema.index({ roleplay: 1, player: 1 }, { unique: true });
+// Non-unique : un joueur peut créer plusieurs personnages sur une même aventure.
+adventureCharacterSchema.index({ roleplay: 1, player: 1 });
 
 adventureCharacterSchema.set('toJSON', {
   virtuals: true,

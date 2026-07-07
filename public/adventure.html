@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="/css/cards.css">
   <link rel="stylesheet" href="/css/aventure.css">
   <style>
+    .seance-badge.live { background: var(--success); color: #fff; }
     .points-counter {
       font-weight: 800;
       font-size: 1.1rem;
@@ -36,7 +37,7 @@
       display: flex;
       flex-direction: column;
     }
-    body.screen-live-active .page-header { flex-shrink: 0; }
+    body.screen-live-active .page-header { display: none; }
     body.screen-live-active .main-content {
       flex: 1;
       min-height: 0;
@@ -110,9 +111,6 @@
     }
     .live-portrait-icon img { width: 100%; height: 100%; object-fit: cover; }
     .live-portrait-name { font-weight: 700; margin-top: 4px; }
-    .live-quick-stats.stats-display { grid-template-columns: repeat(2, 1fr); margin-bottom: 12px; gap: 6px; }
-    .live-quick-stats .stat-display { padding: 6px; }
-    .live-quick-skills { margin-bottom: 12px; }
     .live-skill-chip {
       font-size: 0.75rem;
       padding: 4px 8px;
@@ -122,8 +120,55 @@
       display: inline-block;
       margin: 2px 4px 2px 0;
     }
-    .live-toolbar { display: flex; gap: 8px; }
-    .live-toolbar .btn { flex: 1; justify-content: center; position: relative; }
+    /* ─── Sélecteur de personnage actif (dropdown avec recherche — un joueur peut en jouer
+       plusieurs simultanément, des chips ne passeraient pas à l'échelle avec une dizaine) ─── */
+    .char-select { position: relative; margin-bottom: 10px; }
+    .char-select-trigger {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      padding: 8px 10px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .char-select-trigger-icon, .char-select-chip-icon {
+      width: 26px; height: 26px; border-radius: 50%; overflow: hidden; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--card); font-size: 0.9rem;
+    }
+    .char-select-trigger-icon img, .char-select-chip-icon img { width: 100%; height: 100%; object-fit: cover; }
+    .char-select-trigger-name { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .char-select-trigger-caret { color: var(--text-muted); }
+    .char-select-dropdown {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0; right: 0;
+      z-index: 20;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+      padding: 8px;
+    }
+    .char-select-dropdown input { margin-bottom: 6px; }
+    .char-select-list { max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+    .char-select-option {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 8px; border-radius: var(--radius-sm);
+      cursor: pointer; font-size: 0.82rem;
+    }
+    .char-select-option:hover { background: var(--card-hover); }
+    .char-select-option.active { background: var(--card-hover); border: 1px solid var(--theme, var(--gold)); }
+    .place-token-chip {
+      font-size: 0.72rem;
+      padding: 4px 10px;
+    }
   </style>
 </head>
 <body>
@@ -158,6 +203,27 @@
         </div>
       </div>
 
+      <!-- Screen: liste des personnages du joueur sur cette aventure -->
+      <div class="screen" id="screen-characters">
+        <div class="hero" style="padding:32px 0 16px;">
+          <h1 class="hero-title" id="chars-adventure-name" style="font-size:1.8rem;"></h1>
+          <p class="hero-sub" id="chars-adventure-desc"></p>
+        </div>
+
+        <div class="card" style="padding:24px;">
+          <div class="section-header" style="margin-bottom:14px;">
+            <h3 style="margin:0;">Vos personnages</h3>
+            <button class="btn btn-secondary btn-sm" onclick="showCreateScreen()">+ Nouveau personnage</button>
+          </div>
+          <div id="my-characters-list"></div>
+        </div>
+
+        <div class="card" style="padding:20px;margin-top:20px;text-align:center;">
+          <p class="text-muted text-sm" id="live-status-text">Vérification de la séance...</p>
+          <button class="btn btn-gold" id="btn-join-live" style="display:none;margin-top:10px;" onclick="joinLiveSeance()">🎲 Rejoindre la séance en direct</button>
+        </div>
+      </div>
+
       <!-- Screen: character creation -->
       <div class="screen" id="screen-create">
         <div class="hero" style="padding:32px 0 16px;">
@@ -166,7 +232,10 @@
         </div>
 
         <div class="card" style="padding:24px;">
-          <h3 style="margin-bottom:16px;">Créez votre personnage</h3>
+          <div class="section-header" style="margin-bottom:16px;">
+            <h3 style="margin:0;">Créez votre personnage</h3>
+            <button class="btn btn-ghost btn-sm" id="create-back-btn" style="display:none;" onclick="showScreen('characters')">← Retour</button>
+          </div>
 
           <div class="form-row">
             <div class="form-group">
@@ -176,9 +245,11 @@
             <div class="form-group">
               <label class="form-label">Token (image)</label>
               <div style="display:flex;align-items:center;gap:12px;">
-                <div class="token-upload-preview" id="create-token-preview" onclick="document.getElementById('create-token-input').click()" title="Choisir une image">➕</div>
+                <div class="token-upload-preview" id="create-token-preview" onclick="document.getElementById('create-token-input').click()" title="Choisir une image" style="--token-color:#c9a227;">➕</div>
                 <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('create-token-input').click()">Choisir une image</button>
                 <input type="file" id="create-token-input" accept="image/png,image/jpeg,image/webp" style="display:none;" onchange="onCreateTokenSelected(this.files[0])">
+                <label class="form-label" style="margin:0;">Contour</label>
+                <input type="color" id="create-token-color" value="#c9a227" oninput="document.getElementById('create-token-preview').style.setProperty('--token-color', this.value)">
               </div>
             </div>
           </div>
@@ -203,48 +274,6 @@
         </div>
       </div>
 
-      <!-- Screen: persistent sheet -->
-      <div class="screen" id="screen-sheet">
-        <div class="hero" style="padding:32px 0 16px;">
-          <h1 class="hero-title" id="sheet-adventure-name" style="font-size:1.8rem;"></h1>
-        </div>
-
-        <div class="character-sheet">
-          <div class="character-sheet-header">
-            <div>
-              <div class="token-upload-preview" id="sheet-char-icon" onclick="document.getElementById('token-file-input').click()" title="Changer mon token"></div>
-              <button class="btn btn-ghost btn-sm" style="margin-top:6px;" onclick="document.getElementById('token-file-input').click()">📷 Token</button>
-              <input type="file" id="token-file-input" accept="image/png,image/jpeg,image/webp" style="display:none;" onchange="uploadToken(this.files[0])">
-            </div>
-            <div>
-              <div class="character-item-name" id="sheet-char-name" style="font-size:1.3rem;font-weight:800;"></div>
-              <p class="text-muted text-sm" id="sheet-char-backstory"></p>
-            </div>
-          </div>
-          <div class="stats-display" id="sheet-stats-display"></div>
-        </div>
-
-        <div class="card" style="padding:20px;margin-top:20px;">
-          <h3>✨ Compétences</h3>
-          <div id="sheet-skills" style="margin-top:10px;"></div>
-        </div>
-
-        <div class="card" style="padding:20px;margin-top:20px;">
-          <h3>🎒 Inventaire</h3>
-          <div id="sheet-inventory" style="margin-top:10px;"></div>
-        </div>
-
-        <div class="card" style="padding:20px;margin-top:20px;">
-          <h3>📓 Journal</h3>
-          <div id="sheet-journal" style="margin-top:10px;"></div>
-        </div>
-
-        <div class="card" style="padding:20px;margin-top:20px;text-align:center;">
-          <p class="text-muted text-sm" id="live-status-text">Vérification de la séance...</p>
-          <button class="btn btn-gold" id="btn-join-live" style="display:none;margin-top:10px;" onclick="joinLiveSeance()">🎲 Rejoindre la séance en direct</button>
-        </div>
-      </div>
-
     </div>
 
     <!-- Screen: live play (hors conteneur étroit, même gabarit plein écran que le panneau MJ) -->
@@ -253,7 +282,10 @@
           <div>
             <div class="session-title" id="live-chapter-title">—</div>
           </div>
-          <span class="badge badge-success">🟢 En direct</span>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <span class="badge seance-badge live" id="live-seance-badge">Séance ouverte · 0 connecté(s)</span>
+            <a href="/" class="btn btn-ghost btn-sm">← Retour</a>
+          </div>
         </div>
 
         <div class="gm-live-layout">
@@ -268,7 +300,10 @@
                   <div class="token-layer" id="live-token-layer"></div>
                 </div>
               </div>
-              <div class="token-badges-bar" id="live-token-badges" style="display:none;"></div>
+              <div style="position:absolute;bottom:8px;left:8px;z-index:5;display:flex;flex-direction:column-reverse;gap:6px;align-items:flex-start;">
+                <div class="token-badges-bar" id="live-token-badges" style="display:none;position:static;"></div>
+                <div id="place-token-bar" style="display:none;flex-direction:column;gap:4px;"></div>
+              </div>
               <div style="position:absolute;top:8px;right:8px;z-index:5;display:flex;align-items:center;gap:8px;">
                 <div class="grid-size-control" title="Zoom de la carte (local, n'affecte pas les autres)">
                   <span>🔍</span>
@@ -277,33 +312,55 @@
                 </div>
                 <button type="button" class="btn btn-secondary btn-sm" id="grid-toggle-btn" onclick="toggleGrid()">🔲 Grille</button>
               </div>
-              <button type="button" class="btn btn-gold btn-sm" id="place-token-btn" style="position:absolute;bottom:8px;left:8px;z-index:5;display:none;" onclick="placeMyToken()">📍 Placer mon personnage</button>
             </div>
             <audio id="live-audio" controls style="width:100%;margin-top:12px;display:none;"></audio>
           </div>
 
-          <div class="gm-sidebar-scroll">
-            <div class="live-portrait" onclick="openCharacterDetailModal()">
+          <div class="gm-sidebar-scroll" id="live-sidebar-tabs">
+            <div id="live-character-switcher"></div>
+
+            <div class="live-portrait" onclick="openCharacterDetailModal(activeCharacterId)">
               <div class="live-portrait-icon" id="live-char-icon">❓</div>
               <div class="live-portrait-name" id="live-char-name-mini"></div>
               <div class="text-muted text-sm">Voir la fiche complète</div>
             </div>
 
-            <div class="live-quick-skills">
-              <div class="form-label">📜 Journal de groupe</div>
+            <div class="tabs gm-tabs">
+              <button class="tab-btn active" data-tab="live-groupe">📜 Groupe</button>
+              <button class="tab-btn" data-tab="live-stats">📊 Stats</button>
+              <button class="tab-btn" data-tab="live-competences">✨ Comp.</button>
+              <button class="tab-btn" data-tab="live-inventaire">🎒 Inv.</button>
+              <button class="tab-btn" data-tab="live-notes">📓 Notes</button>
+            </div>
+
+            <div class="tab-panel active" id="tab-live-groupe">
+              <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
+                <input type="number" class="form-input" id="live-groupe-dice-count" value="1" min="1" max="20" style="width:70px;">
+                <span>d</span>
+                <input type="number" class="form-input" id="live-groupe-dice-sides" value="100" min="2" max="1000" style="width:80px;">
+                <button class="btn btn-secondary btn-sm" onclick="rollGroupeDice()">🎲 Lancer</button>
+              </div>
               <div id="journal-feed" class="journal-feed"></div>
               <div class="journal-chat-row">
-                <input type="text" class="form-input" id="journal-chat-input" placeholder="Écrire au groupe..." onkeydown="if(event.key==='Enter') sendGroupChat()">
+                <input type="text" class="form-input" id="journal-chat-input" placeholder="Écrire au groupe... (/mp message = privé au MJ)" onkeydown="if(event.key==='Enter') sendGroupChat()">
                 <button class="btn btn-gold btn-sm" onclick="sendGroupChat()">➤</button>
               </div>
             </div>
 
-            <div class="live-toolbar">
-              <button class="btn btn-secondary btn-sm" onclick="openJournalModal()">📓 Journal</button>
-              <button class="btn btn-secondary btn-sm" onclick="openDiceModal()">🎲 Dés</button>
-              <button class="btn btn-secondary btn-sm" onclick="openMessagesModal()">
-                💬<span id="msg-badge" class="badge badge-danger" style="display:none;margin-left:4px;">0</span>
-              </button>
+            <div class="tab-panel" id="tab-live-stats">
+              <div class="stats-display" id="live-stats-display"></div>
+            </div>
+
+            <div class="tab-panel" id="tab-live-competences">
+              <div id="live-skills-list"></div>
+            </div>
+
+            <div class="tab-panel" id="tab-live-inventaire">
+              <div id="live-inventory-display"></div>
+            </div>
+
+            <div class="tab-panel" id="tab-live-notes">
+              <div id="live-journal"></div>
             </div>
           </div>
         </div>
@@ -319,64 +376,32 @@
         <button class="modal-close" onclick="closeModal('char-detail-modal')">✕</button>
       </div>
       <div class="modal-body">
+        <div style="text-align:center;margin-bottom:16px;">
+          <div class="token-upload-preview" id="char-detail-token-preview" onclick="document.getElementById('char-detail-token-input').click()" title="Changer le token" style="margin:0 auto;"></div>
+          <input type="file" id="char-detail-token-input" accept="image/png,image/jpeg,image/webp" style="display:none;" onchange="uploadTokenForViewedCharacter(this.files[0])">
+          <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:8px;">
+            <label class="form-label" style="margin:0;">Couleur du contour</label>
+            <input type="color" id="char-detail-token-color" value="#c9a227" onchange="updateViewedCharacterTokenColor(this.value)">
+          </div>
+        </div>
         <p class="text-muted text-sm" id="char-detail-backstory"></p>
         <div class="stats-display" id="char-detail-stats" style="margin-top:16px;"></div>
+        <div class="card" style="padding:16px;margin-top:16px;">
+          <h4>✨ Compétences</h4>
+          <div id="char-detail-skills" style="margin-top:8px;"></div>
+        </div>
         <div class="card" style="padding:16px;margin-top:16px;">
           <h4>🎒 Inventaire</h4>
           <div id="char-detail-inventory" style="margin-top:8px;"></div>
         </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Journal modal -->
-  <div class="modal-overlay" id="journal-modal">
-    <div class="modal">
-      <div class="modal-header">
-        <h3 class="modal-title">📓 Journal</h3>
-        <button class="modal-close" onclick="closeModal('journal-modal')">✕</button>
-      </div>
-      <div class="modal-body">
-        <div id="live-journal"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Dice modal -->
-  <div class="modal-overlay" id="dice-modal">
-    <div class="modal">
-      <div class="modal-header">
-        <h3 class="modal-title">🎲 Jet de dés</h3>
-        <button class="modal-close" onclick="closeModal('dice-modal')">✕</button>
-      </div>
-      <div class="modal-body">
-        <div style="display:flex;gap:8px;align-items:center;">
-          <input type="number" class="form-input" id="live-dice-count" value="1" min="1" max="20" style="width:70px;">
-          <span>d</span>
-          <input type="number" class="form-input" id="live-dice-sides" value="100" min="2" max="1000" style="width:80px;">
-          <button class="btn btn-primary" onclick="rollLiveDice()">Lancer</button>
-        </div>
-        <div id="live-dice-history" style="margin-top:16px;"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Messages modal -->
-  <div class="modal-overlay" id="messages-modal">
-    <div class="modal">
-      <div class="modal-header">
-        <h3 class="modal-title">💬 Messages avec le MJ</h3>
-        <button class="modal-close" onclick="closeModal('messages-modal')">✕</button>
-      </div>
-      <div class="modal-body">
-        <div id="live-msg-thread" style="max-height:400px;overflow-y:auto;margin-bottom:16px;"></div>
-        <div style="display:flex;gap:8px;">
-          <input type="text" class="form-input" id="live-msg-input" placeholder="Votre message au MJ..." maxlength="1000">
-          <button class="btn btn-primary" onclick="sendLiveMessage()">Envoyer</button>
+        <div class="card" style="padding:16px;margin-top:16px;">
+          <h4>📓 Journal</h4>
+          <div id="char-detail-journal" style="margin-top:8px;"></div>
         </div>
       </div>
     </div>
   </div>
+
 
   <div class="toast-container" id="toast-container"></div>
 
@@ -387,6 +412,10 @@
     const code = window.location.pathname.split('/').pop().toUpperCase();
     let adventure = null;
     let pointBudget = 30;
+    // Un joueur peut avoir plusieurs personnages sur une même aventure et les jouer simultanément.
+    let myCharacters = [];
+    let activeCharacterId = null; // personnage actif dans le panneau latéral (fiche/chat/dés) en direct
+    let viewingCharacterId = null; // personnage affiché dans la popup de détail (peut différer de l'actif)
 
     function showScreen(name) {
       document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
@@ -420,15 +449,14 @@
       document.documentElement.style.setProperty('--theme', adventure.themeColor);
 
       const charRes = await fetch(`/api/adventures/${adventure.id}/character`);
-      if (charRes.status === 404) {
-        showCreateScreen();
-      } else if (charRes.ok) {
-        const character = await charRes.json();
-        showSheetScreen(character);
-      } else {
-        document.getElementById('error-message').textContent = 'Erreur lors du chargement de votre personnage.';
+      if (!charRes.ok) {
+        document.getElementById('error-message').textContent = 'Erreur lors du chargement de vos personnages.';
         showScreen('error');
+        return;
       }
+      myCharacters = await charRes.json();
+      if (myCharacters.length === 0) showCreateScreen();
+      else showCharactersScreen();
     })();
 
     // ─── Création de personnage ──────────────────────
@@ -437,13 +465,47 @@
     function showCreateScreen() {
       document.getElementById('create-adventure-name').textContent = adventure.name;
       document.getElementById('create-adventure-desc').textContent = adventure.description || '';
+      document.getElementById('create-back-btn').style.display = myCharacters.length > 0 ? '' : 'none';
       pointBudget = adventure.pointBudget || 30;
       renderCreateStatsGrid();
       updatePointsCounter();
       renderCreateSkillsList();
       selectedTokenFile = null;
       document.getElementById('create-token-preview').innerHTML = '➕';
+      document.getElementById('create-token-color').value = '#c9a227';
+      document.getElementById('create-token-preview').style.setProperty('--token-color', '#c9a227');
       showScreen('create');
+    }
+
+    // ─── Gestion de mes personnages sur cette aventure ────────────
+    function showCharactersScreen() {
+      document.getElementById('chars-adventure-name').textContent = adventure.name;
+      document.getElementById('chars-adventure-desc').textContent = adventure.description || '';
+      renderMyCharactersList();
+      showScreen('characters');
+      checkLiveStatus();
+    }
+
+    function renderMyCharactersList() {
+      const el = document.getElementById('my-characters-list');
+      if (!myCharacters.length) {
+        el.innerHTML = '<p class="text-muted text-sm">Vous n\'avez pas encore de personnage sur cette aventure.</p>';
+        return;
+      }
+      el.innerHTML = myCharacters.map(c => `
+        <div class="character-item" style="cursor:pointer;" onclick="openCharacterDetailModal('${c.id}')">
+          <div class="character-item-icon">${c.tokenMediaId ? `<img src="/api/adventures/${adventure.id}/media/${c.tokenMediaId}/file" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">` : (c.icon || '❓')}</div>
+          <div class="character-item-info">
+            <div class="character-item-name">${esc(c.name)}</div>
+            <div class="character-item-title">${esc((c.backstory || '').slice(0, 60)) || 'Aucune histoire renseignée'}</div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    async function refreshMyCharacters() {
+      const res = await fetch(`/api/adventures/${adventure.id}/character`);
+      if (res.ok) myCharacters = await res.json();
     }
 
     function onCreateTokenSelected(file) {
@@ -530,66 +592,85 @@
         name,
         backstory: document.getElementById('char-backstory').value.trim(),
         stats,
-        skills: collectCreateSkills()
+        skills: collectCreateSkills(),
+        tokenColor: document.getElementById('create-token-color').value
       };
       const res = await fetch(`/api/adventures/${adventure.id}/character`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
       });
-      let data = await res.json().catch(() => ({}));
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) { showToast(data.error || 'Erreur lors de la création', 'error'); return; }
 
-      if (selectedTokenFile) {
-        currentCharacter = data;
-        await uploadToken(selectedTokenFile);
-        data = currentCharacter;
-      }
+      if (selectedTokenFile) await uploadTokenForCharacter(data.id, selectedTokenFile);
 
       showToast('Personnage créé !', 'success');
-      showSheetScreen(data);
+      await refreshMyCharacters();
+      showCharactersScreen();
     }
 
-    // ─── Fiche persistante ────────────────────────────
-    let currentCharacter = null;
-
-    function showSheetScreen(character) {
-      currentCharacter = character;
-      document.getElementById('sheet-adventure-name').textContent = adventure.name;
-      renderTokenPreview(character);
-      document.getElementById('sheet-char-name').textContent = character.name;
-      document.getElementById('sheet-char-backstory').textContent = character.backstory || '';
-
-      document.getElementById('sheet-stats-display').innerHTML = statDefs.map(def => `
+    // ─── Popup "détail d'un personnage" (fiche complète + upload de token) ────
+    function openCharacterDetailModal(characterId) {
+      const character = myCharacters.find(c => c.id === characterId);
+      if (!character) return;
+      viewingCharacterId = characterId;
+      document.getElementById('char-detail-title').textContent = character.name;
+      document.getElementById('char-detail-token-preview').innerHTML = character.tokenMediaId
+        ? `<img src="/api/adventures/${adventure.id}/media/${character.tokenMediaId}/file">`
+        : (character.icon || '❓');
+      document.getElementById('char-detail-token-preview').style.setProperty('--token-color', character.tokenColor || '#c9a227');
+      document.getElementById('char-detail-token-color').value = character.tokenColor || '#c9a227';
+      document.getElementById('char-detail-backstory').textContent = character.backstory || 'Aucune histoire renseignée.';
+      document.getElementById('char-detail-stats').innerHTML = statDefs.map(def => `
         <div class="stat-display">
           <div class="stat-label">${esc(def.label)}</div>
           <div class="stat-value">${character.stats[def.key] ?? '—'}</div>
         </div>
       `).join('');
-
-      renderSkillsQuick('sheet-skills', character.skills);
-      renderInventory('sheet-inventory', character.inventory);
-      renderJournal('sheet-journal', character.journal);
-
-      showScreen('sheet');
-      checkLiveStatus();
+      renderSkillsQuick('char-detail-skills', character.skills);
+      renderInventory('char-detail-inventory', character.inventory);
+      renderJournal('char-detail-journal', character.journal);
+      openModal('char-detail-modal');
     }
 
-    function renderTokenPreview(character) {
-      const el = document.getElementById('sheet-char-icon');
-      el.innerHTML = character.tokenMediaId
+    async function uploadTokenForViewedCharacter(file) {
+      if (!file || !viewingCharacterId) return;
+      await uploadTokenForCharacter(viewingCharacterId, file);
+      const character = myCharacters.find(c => c.id === viewingCharacterId);
+      document.getElementById('char-detail-token-preview').innerHTML = character?.tokenMediaId
         ? `<img src="/api/adventures/${adventure.id}/media/${character.tokenMediaId}/file">`
-        : (character.icon || '❓');
+        : (character?.icon || '❓');
     }
 
-    async function uploadToken(file) {
+    async function updateViewedCharacterTokenColor(color) {
+      if (!viewingCharacterId) return;
+      document.getElementById('char-detail-token-preview').style.setProperty('--token-color', color);
+      try {
+        const res = await fetch(`/api/adventures/${adventure.id}/character/${viewingCharacterId}`, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tokenColor: color })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) { showToast(data.error || 'Erreur lors de la mise à jour', 'error'); return; }
+        const idx = myCharacters.findIndex(c => c.id === viewingCharacterId);
+        if (idx >= 0) myCharacters[idx] = data; else myCharacters.push(data);
+        if (viewingCharacterId === activeCharacterId) renderLiveCharacter(data);
+        renderCharacterSwitcher();
+      } catch {
+        showToast('Impossible de contacter le serveur.', 'error');
+      }
+    }
+
+    async function uploadTokenForCharacter(characterId, file) {
       if (!file) return;
       const formData = new FormData();
       formData.append('file', file);
       try {
-        const res = await fetch(`/api/adventures/${adventure.id}/character/token`, { method: 'POST', body: formData });
+        const res = await fetch(`/api/adventures/${adventure.id}/character/${characterId}/token`, { method: 'POST', body: formData });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) { showToast(data.error || 'Erreur lors de l\'upload du token', 'error'); return; }
-        currentCharacter = data;
-        renderTokenPreview(data);
+        const idx = myCharacters.findIndex(c => c.id === characterId);
+        if (idx >= 0) myCharacters[idx] = data; else myCharacters.push(data);
+        if (characterId === activeCharacterId) renderLiveCharacter(data);
+        renderCharacterSwitcher();
         showToast('Token mis à jour !', 'success');
       } catch {
         showToast('Impossible de contacter le serveur.', 'error');
@@ -639,14 +720,18 @@
       socket.on('adv:error', (msg) => showToast(msg, 'error'));
 
       socket.on('adv:player:state', (state) => {
-        currentCharacter = state.character;
+        myCharacters = state.characters || [];
+        if (!activeCharacterId || !myCharacters.some(c => c.id === activeCharacterId)) {
+          activeCharacterId = myCharacters[0]?.id || null;
+        }
         document.getElementById('live-chapter-title').textContent = state.chapterTitle || 'Aventure en cours';
-        renderLiveCharacter(state.character);
-        renderMsgHistory(state.character.messages);
+        renderCharacterSwitcher();
+        renderLiveCharacter(getActiveCharacter());
         partyMembers = state.partyMembers || [];
         npcRoster = state.npcRoster || [];
         if (state.gridSize) gridColumns = state.gridSize;
         initJournalFromState(state.journal);
+        updateConnectedBadge(state.connectedCount || 1);
         if (state.nowShowing) {
           document.getElementById('live-map-media').innerHTML = `<img id="live-map-display" src="${state.nowShowing.url}" onload="recomputeGrid()">`;
           document.getElementById('live-grid-overlay').style.display = gridVisible ? '' : 'none';
@@ -663,9 +748,11 @@
       });
 
       socket.on('adv:player:characterUpdated', (character) => {
-        currentCharacter = character;
-        renderLiveCharacter(character);
-        showToast('Votre personnage a été mis à jour par le MJ', 'info');
+        const idx = myCharacters.findIndex(c => c.id === character.id);
+        if (idx >= 0) myCharacters[idx] = character; else myCharacters.push(character);
+        renderCharacterSwitcher();
+        if (character.id === activeCharacterId) renderLiveCharacter(character);
+        showToast(`${character.name} a été mis à jour par le MJ`, 'info');
       });
 
       socket.on('adv:player:chapterChanged', ({ title }) => {
@@ -683,15 +770,15 @@
 
       socket.on('adv:player:seanceClosed', () => {
         showToast('Le MJ a fermé la séance.', 'info');
-        showSheetScreen(currentCharacter);
+        showCharactersScreen();
       });
 
-      socket.on('adv:player:diceResult', appendDiceResult);
-      socket.on('adv:player:gmDiceResult', (r) => appendDiceResult(r, true));
-
-      socket.on('adv:token:position', ({ characterId, kind, x, y, final }) => updateTokenPosition(characterId, kind, x, y, final));
-      socket.on('adv:skill:result', appendSkillResult);
+      socket.on('adv:token:position', ({ characterId, kind, x, y, final, spriteMediaId }) => updateTokenPosition(characterId, kind, x, y, final, spriteMediaId));
+      socket.on('adv:skill:result', (result) => {
+        showToast(`🎲 ${result.skillName} : ${result.percentile} / d${result.diceSides}=${result.skillRoll}`, 'info');
+      });
       socket.on('adv:journal:entry', (entry) => appendJournalEntry(entry));
+      socket.on('adv:player:connectedCount', ({ count }) => updateConnectedBadge(count));
 
       socket.on('adv:token:rotated', ({ characterId, rotation }) => {
         const existing = currentTokenPositions.find(p => p.characterId === characterId);
@@ -707,47 +794,90 @@
         updatePlaceTokenButton(currentTokenPositions);
       });
 
-      socket.on('adv:player:privateMessage', (msg) => {
-        appendMsgBubble(msg);
-        if (!document.getElementById('messages-modal').classList.contains('open')) {
-          unreadMessages++;
-          updateMsgBadge();
-        }
-      });
     }
 
-    let unreadMessages = 0;
-    function updateMsgBadge() {
-      const badge = document.getElementById('msg-badge');
-      badge.textContent = unreadMessages;
-      badge.style.display = unreadMessages > 0 ? '' : 'none';
+    function updateConnectedBadge(count) {
+      const badge = document.getElementById('live-seance-badge');
+      if (badge) badge.textContent = `Séance ouverte · ${count} connecté(s)`;
     }
 
-    function appendMsgBubble(msg) {
-      const thread = document.getElementById('live-msg-thread');
-      const bubble = document.createElement('div');
-      bubble.style.cssText = `margin-bottom:8px;padding:8px 12px;border-radius:var(--radius-sm);max-width:80%;${msg.from === 'gm' ? 'background:var(--surface);border:1px solid var(--border);' : 'background:var(--theme, var(--accent));margin-left:auto;'}`;
-      bubble.textContent = msg.text;
-      thread.appendChild(bubble);
-      thread.scrollTop = thread.scrollHeight;
+    // ─── Sélecteur de personnage actif (plusieurs personnages jouables simultanément) ────
+    function getActiveCharacter() {
+      return myCharacters.find(c => c.id === activeCharacterId) || null;
     }
 
-    function renderMsgHistory(messages) {
-      const thread = document.getElementById('live-msg-thread');
-      thread.innerHTML = '';
-      (messages || []).forEach(appendMsgBubble);
+    // Dropdown avec recherche (plutôt que des badges, qui ne passeraient pas à l'échelle si le
+    // joueur a une dizaine de personnages jouables).
+    let charSelectOpen = false;
+    let charSelectFilter = '';
+
+    function renderCharacterSwitcher() {
+      const el = document.getElementById('live-character-switcher');
+      if (myCharacters.length <= 1) { el.innerHTML = ''; charSelectOpen = false; return; }
+      const active = getActiveCharacter();
+      const activeIcon = active?.tokenMediaId
+        ? `<img src="/api/adventures/${adventure.id}/media/${active.tokenMediaId}/file">`
+        : (active?.icon || '❓');
+      el.innerHTML = `
+        <div class="char-select">
+          <button type="button" class="char-select-trigger" onclick="toggleCharSelectDropdown()">
+            <span class="char-select-trigger-icon">${activeIcon}</span>
+            <span class="char-select-trigger-name">${esc(active?.name || 'Choisir un personnage')}</span>
+            <span class="char-select-trigger-caret">▾</span>
+          </button>
+          <div class="char-select-dropdown" id="char-select-dropdown" style="display:${charSelectOpen ? 'block' : 'none'};">
+            <input type="text" class="form-input" id="char-select-search" placeholder="Rechercher un personnage..." oninput="filterCharSelectList(this.value)">
+            <div class="char-select-list" id="char-select-list"></div>
+          </div>
+        </div>
+      `;
+      renderCharSelectList(charSelectFilter);
+      if (charSelectOpen) document.getElementById('char-select-search').focus();
     }
 
-    function sendLiveMessage() {
-      const input = document.getElementById('live-msg-input');
-      const text = input.value.trim();
-      if (!text || !socket) return;
-      socket.emit('adv:player:sendMessage', { roleplayId: adventure.id, text });
-      appendMsgBubble({ text, from: 'player' });
-      input.value = '';
+    function renderCharSelectList(filter) {
+      const list = document.getElementById('char-select-list');
+      if (!list) return;
+      const f = (filter || '').toLowerCase();
+      const filtered = myCharacters.filter(c => c.name.toLowerCase().includes(f));
+      list.innerHTML = filtered.length
+        ? filtered.map(c => `
+            <div class="char-select-option${c.id === activeCharacterId ? ' active' : ''}" onclick="selectActiveCharacter('${c.id}')">
+              <span class="char-select-chip-icon">${c.tokenMediaId ? `<img src="/api/adventures/${adventure.id}/media/${c.tokenMediaId}/file">` : (c.icon || '❓')}</span>
+              ${esc(c.name)}
+            </div>
+          `).join('')
+        : '<p class="text-muted text-sm" style="padding:8px;">Aucun résultat.</p>';
+    }
+
+    function filterCharSelectList(value) {
+      charSelectFilter = value;
+      renderCharSelectList(value);
+    }
+
+    function toggleCharSelectDropdown() {
+      charSelectOpen = !charSelectOpen;
+      renderCharacterSwitcher();
+    }
+
+    document.addEventListener('click', (e) => {
+      if (charSelectOpen && !e.target.closest('.char-select')) {
+        charSelectOpen = false;
+        renderCharacterSwitcher();
+      }
+    });
+
+    function selectActiveCharacter(characterId) {
+      activeCharacterId = characterId;
+      charSelectOpen = false;
+      charSelectFilter = '';
+      renderCharacterSwitcher();
+      renderLiveCharacter(getActiveCharacter());
+      updatePlaceTokenBar(currentTokenPositions);
     }
 
     function renderLiveCharacter(character) {
+      if (!character) return;
       document.getElementById('live-char-icon').innerHTML = character.tokenMediaId
         ? `<img src="/api/adventures/${adventure.id}/media/${character.tokenMediaId}/file">`
         : (character.icon || '❓');
@@ -758,6 +888,8 @@
           <div class="stat-value">${character.stats[def.key] ?? '—'}</div>
         </div>
       `).join('');
+      renderSkillsQuick('live-skills-list', character.skills, true, character.id);
+      renderInventory('live-inventory-display', character.inventory);
       renderJournal('live-journal', character.journal);
     }
 
@@ -774,7 +906,7 @@
     }
 
     function formatJournalEntry(e) {
-      if (e.kind === 'chat') return esc(e.text);
+      if (e.kind === 'chat') return (e.mp ? '<strong class="text-muted">MP</strong> - ' : '') + esc(e.text);
       if (e.kind === 'skill') return `🎲 <strong>${esc(e.skillName)}</strong> : 1d100=${e.percentile} · 1d${e.diceSides}=<strong>${e.skillRoll}</strong>`;
       if (e.kind === 'dice') return `🎲 ${e.count}d${e.sides} → ${e.rolls.join(', ')} = <strong>${e.total}</strong>`;
       return '';
@@ -809,58 +941,40 @@
     }
 
     function sendGroupChat() {
-      if (!socket) return;
+      if (!socket || !activeCharacterId) return;
       const input = document.getElementById('journal-chat-input');
       const text = input.value.trim();
       if (!text) return;
-      socket.emit('adv:chat:send', { roleplayId: adventure.id, text });
+      socket.emit('adv:chat:send', { roleplayId: adventure.id, text, characterId: activeCharacterId });
       input.value = '';
     }
 
-    function renderSkillsQuick(containerId, skills, clickable) {
+    function rollGroupeDice() {
+      if (!socket || !activeCharacterId) return;
+      const count = parseInt(document.getElementById('live-groupe-dice-count').value) || 1;
+      const sides = parseInt(document.getElementById('live-groupe-dice-sides').value) || 100;
+      socket.emit('adv:player:rollDice', { roleplayId: adventure.id, count, sides, characterId: activeCharacterId });
+    }
+
+    function renderSkillsQuick(containerId, skills, clickable, characterId) {
       const el = document.getElementById(containerId);
       el.innerHTML = (skills && skills.length)
         ? skills.map(s => clickable
-            ? `<button type="button" class="live-skill-chip" style="cursor:pointer;border:1px solid var(--border);" title="${esc(s.description || '')} — cliquer pour lancer 1d100 + 1d${s.diceSides || 6}" onclick="rollSkill('${s.id}')">🎲 ${esc(s.name)}</button>`
+            ? `<button type="button" class="live-skill-chip" style="cursor:pointer;border:1px solid var(--border);" title="${esc(s.description || '')} — cliquer pour lancer 1d100 + 1d${s.diceSides || 6}" onclick="rollSkill('${s.id}','${characterId}')">🎲 ${esc(s.name)}</button>`
             : `<span class="live-skill-chip" title="${esc(s.description || '')}">${esc(s.name)}</span>`
           ).join('')
         : '<p class="text-muted text-sm">Aucune compétence.</p>';
     }
 
-    function rollSkill(skillId) {
-      if (!socket || !currentCharacter) return;
-      socket.emit('adv:skill:roll', { roleplayId: adventure.id, characterId: currentCharacter.id, skillId });
+    function rollSkill(skillId, characterId) {
+      if (!socket || !characterId) return;
+      socket.emit('adv:skill:roll', { roleplayId: adventure.id, characterId, skillId });
     }
 
     function openModal(id) { document.getElementById(id).classList.add('open'); }
     function closeModal(id) { document.getElementById(id).classList.remove('open'); }
 
-    function openCharacterDetailModal() {
-      if (!currentCharacter) return;
-      document.getElementById('char-detail-title').textContent = currentCharacter.name;
-      document.getElementById('char-detail-backstory').textContent = currentCharacter.backstory || 'Aucune histoire renseignée.';
-      document.getElementById('char-detail-stats').innerHTML = statDefs.map(def => `
-        <div class="stat-display">
-          <div class="stat-label">${esc(def.label)}</div>
-          <div class="stat-value">${currentCharacter.stats[def.key] ?? '—'}</div>
-        </div>
-      `).join('');
-      renderInventory('char-detail-inventory', currentCharacter.inventory);
-      openModal('char-detail-modal');
-    }
 
-    function openJournalModal() {
-      if (currentCharacter) renderJournal('live-journal', currentCharacter.journal);
-      openModal('journal-modal');
-    }
-
-    function openDiceModal() { openModal('dice-modal'); }
-
-    function openMessagesModal() {
-      unreadMessages = 0;
-      updateMsgBadge();
-      openModal('messages-modal');
-    }
 
     let partyMembers = [];
     let npcRoster = [];
@@ -924,6 +1038,57 @@
     new ResizeObserver(applyZoom).observe(document.getElementById('live-map-container'));
     applyZoom();
 
+    // Zoom à la molette (comme le curseur, recentré sur la vue actuelle).
+    document.getElementById('live-map-container').addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const slider = document.getElementById('zoom-slider');
+      const newValue = Math.min(300, Math.max(50, parseInt(slider.value) - Math.sign(e.deltaY) * 10));
+      slider.value = newValue;
+      onZoomInput(newValue);
+    }, { passive: false });
+
+    // Maintenir le clic sur la carte pour la déplacer (pan) quand elle est zoomée.
+    let mapPanning = null;
+
+    function onMapPanPointerDown(e) {
+      if (e.button !== 0 || e.target.closest('.token')) return; // laisse le glisser-déposer du token gérer ce cas
+      e.preventDefault();
+      const scrollEl = document.getElementById('live-stage-scroll');
+      mapPanning = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, startScrollLeft: scrollEl.scrollLeft, startScrollTop: scrollEl.scrollTop };
+      scrollEl.setPointerCapture(e.pointerId);
+      scrollEl.classList.add('panning');
+    }
+
+    function onMapPanPointerMove(e) {
+      if (!mapPanning || e.pointerId !== mapPanning.pointerId) return;
+      const scrollEl = document.getElementById('live-stage-scroll');
+      scrollEl.scrollLeft = mapPanning.startScrollLeft - (e.clientX - mapPanning.startX);
+      scrollEl.scrollTop = mapPanning.startScrollTop - (e.clientY - mapPanning.startY);
+    }
+
+    function onMapPanPointerUp(e) {
+      if (!mapPanning || e.pointerId !== mapPanning.pointerId) return;
+      document.getElementById('live-stage-scroll').classList.remove('panning');
+      mapPanning = null;
+    }
+
+    const liveStageScrollEl = document.getElementById('live-stage-scroll');
+    liveStageScrollEl.addEventListener('pointerdown', onMapPanPointerDown);
+    liveStageScrollEl.addEventListener('pointermove', onMapPanPointerMove);
+    liveStageScrollEl.addEventListener('pointerup', onMapPanPointerUp);
+    liveStageScrollEl.addEventListener('pointercancel', onMapPanPointerUp);
+
+    // ─── Onglets du panneau latéral (Groupe / Stats / Compétences / Inventaire / Notes) ────
+    document.querySelectorAll('#live-sidebar-tabs .tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const group = document.getElementById('live-sidebar-tabs');
+        group.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        group.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
+      });
+    });
+
     function applyNowShowing({ url, tokenPositions: tp, partyMembers: pm, npcRoster: nr }) {
       document.getElementById('live-map-media').innerHTML = `<img id="live-map-display" src="${url}" onload="recomputeGrid()">`;
       document.getElementById('live-grid-overlay').style.display = gridVisible ? '' : 'none';
@@ -947,6 +1112,13 @@
       currentTokenPositions = positions;
       const layer = document.getElementById('live-token-layer');
       layer.innerHTML = positions.map(p => {
+        if (p.kind === 'sprite') {
+          return `
+            <div class="token sprite-token" data-character-id="${p.characterId}" data-kind="sprite" style="left:${p.x}%;top:${p.y}%;transform:translate(-50%,-50%) rotate(${p.rotation || 0}deg);">
+              <img src="/api/adventures/${adventure.id}/media/${p.spriteMediaId}/file">
+            </div>
+          `;
+        }
         const entity = findTokenEntity(p.characterId, p.kind);
         if (!entity) return '';
         const visual = entity.tokenMediaId
@@ -954,31 +1126,40 @@
           : (entity.icon || '❓');
         const selected = selectedToken && selectedToken.characterId === p.characterId ? ' selected' : '';
         return `
-          <div class="token${selected}" data-character-id="${p.characterId}" data-kind="${p.kind || 'character'}" style="left:${p.x}%;top:${p.y}%;transform:translate(-50%,-50%) rotate(${p.rotation || 0}deg);">
+          <div class="token${selected}" data-character-id="${p.characterId}" data-kind="${p.kind || 'character'}" style="left:${p.x}%;top:${p.y}%;transform:translate(-50%,-50%) rotate(${p.rotation || 0}deg);--token-color:${entity.tokenColor || '#c9a227'};">
             ${visual}
             <span class="token-label">${esc(entity.name)}</span>
           </div>
         `;
       }).join('');
-      attachOwnTokenDragHandler();
-      updatePlaceTokenButton(positions);
+      attachOwnTokenDragHandlers();
+      updatePlaceTokenBar(positions);
       renderTokenBadges();
     }
 
-    function updatePlaceTokenButton(positions) {
-      const btn = document.getElementById('place-token-btn');
-      const alreadyPlaced = currentCharacter && positions.some(p => p.characterId === currentCharacter.id);
-      btn.style.display = (currentCharacter && !alreadyPlaced) ? '' : 'none';
+    // Un ou plusieurs de mes personnages peuvent ne pas encore être placés sur la carte —
+    // un bouton "📍 Placer" par personnage non placé, plutôt qu'un bouton unique.
+    function updatePlaceTokenBar(positions) {
+      const bar = document.getElementById('place-token-bar');
+      const placedIds = new Set(positions.map(p => p.characterId));
+      const unplaced = myCharacters.filter(c => !placedIds.has(c.id));
+      if (!unplaced.length) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
+      bar.style.display = 'flex';
+      bar.innerHTML = unplaced.map(c => `
+        <button type="button" class="btn btn-gold btn-sm place-token-chip" onclick="placeMyToken('${c.id}')">📍 ${esc(c.name)}</button>
+      `).join('');
     }
 
-    function placeMyToken() {
-      if (!socket || !currentCharacter) return;
-      socket.emit('adv:token:drop', { roleplayId: adventure.id, characterId: currentCharacter.id, kind: 'character', x: 50, y: 50 });
+    function placeMyToken(characterId) {
+      if (!socket) return;
+      socket.emit('adv:token:drop', { roleplayId: adventure.id, characterId, kind: 'character', x: 50, y: 50 });
     }
 
-    function attachOwnTokenDragHandler() {
-      const el = document.querySelector(`#live-token-layer .token[data-character-id="${currentCharacter?.id}"]`);
-      if (el) el.addEventListener('pointerdown', onTokenPointerDown);
+    function attachOwnTokenDragHandlers() {
+      const myIds = new Set(myCharacters.map(c => c.id));
+      document.querySelectorAll('#live-token-layer .token').forEach(el => {
+        if (myIds.has(el.dataset.characterId)) el.addEventListener('pointerdown', onTokenPointerDown);
+      });
     }
 
     let draggingToken = null;
@@ -987,7 +1168,7 @@
     function onTokenPointerDown(e) {
       e.preventDefault();
       const el = e.currentTarget;
-      draggingToken = el;
+      draggingToken = { el, characterId: el.dataset.characterId, kind: el.dataset.kind };
       dragMoved = false;
       el.classList.add('dragging');
       el.setPointerCapture(e.pointerId);
@@ -1011,8 +1192,9 @@
     function snapToGrid(x, y) {
       const rect = document.getElementById('live-zoom-content').getBoundingClientRect();
       if (!rect.width || !rect.height) return { x, y };
-      const snappedPxX = Math.round((x / 100) * rect.width / cellPx) * cellPx;
-      const snappedPxY = Math.round((y / 100) * rect.height / cellPx) * cellPx;
+      // Aimante au CENTRE de la case (pas à l'intersection des lignes de la grille).
+      const snappedPxX = (Math.floor((x / 100) * rect.width / cellPx) + 0.5) * cellPx;
+      const snappedPxY = (Math.floor((y / 100) * rect.height / cellPx) + 0.5) * cellPx;
       return {
         x: Math.min(100, Math.max(0, (snappedPxX / rect.width) * 100)),
         y: Math.min(100, Math.max(0, (snappedPxY / rect.height) * 100))
@@ -1023,43 +1205,44 @@
       if (!draggingToken) return;
       dragMoved = true;
       const { x, y } = computePercentFromEvent(e);
-      draggingToken.style.left = `${x}%`;
-      draggingToken.style.top = `${y}%`;
-      socket.emit('adv:token:drag', { roleplayId: adventure.id, characterId: currentCharacter.id, kind: 'character', x, y });
+      draggingToken.el.style.left = `${x}%`;
+      draggingToken.el.style.top = `${y}%`;
+      socket.emit('adv:token:drag', { roleplayId: adventure.id, characterId: draggingToken.characterId, kind: draggingToken.kind, x, y });
     }
 
     function onTokenPointerUp(e) {
       if (!draggingToken) return;
+      const { el, characterId, kind } = draggingToken;
       if (dragMoved) {
         const raw = computePercentFromEvent(e);
         const { x, y } = gridVisible ? snapToGrid(raw.x, raw.y) : raw;
-        draggingToken.style.left = `${x}%`;
-        draggingToken.style.top = `${y}%`;
-        socket.emit('adv:token:drop', { roleplayId: adventure.id, characterId: currentCharacter.id, kind: 'character', x, y });
+        el.style.left = `${x}%`;
+        el.style.top = `${y}%`;
+        socket.emit('adv:token:drop', { roleplayId: adventure.id, characterId, kind, x, y });
       }
-      draggingToken.classList.remove('dragging');
-      draggingToken.removeEventListener('pointermove', onTokenPointerMove);
-      draggingToken.removeEventListener('pointerup', onTokenPointerUp);
-      draggingToken.removeEventListener('pointercancel', onTokenPointerUp);
+      el.classList.remove('dragging');
+      el.removeEventListener('pointermove', onTokenPointerMove);
+      el.removeEventListener('pointerup', onTokenPointerUp);
+      el.removeEventListener('pointercancel', onTokenPointerUp);
       draggingToken = null;
 
       // Un clic simple (sans déplacement) sélectionne/désélectionne le token.
-      if (!dragMoved && selectedToken) deselectToken();
-      else selectToken(currentCharacter.id, 'character');
+      if (!dragMoved && selectedToken && selectedToken.characterId === characterId) deselectToken();
+      else selectToken(characterId, kind);
     }
 
-    function updateTokenPosition(characterId, kind, x, y, final) {
+    function updateTokenPosition(characterId, kind, x, y, final, spriteMediaId) {
       const el = document.querySelector(`#live-token-layer .token[data-character-id="${characterId}"]`);
       if (!final) {
-        if (el && draggingToken !== el) {
+        if (el && draggingToken?.characterId !== characterId) {
           el.style.left = `${x}%`;
           el.style.top = `${y}%`;
         }
         return;
       }
       const existing = currentTokenPositions.find(p => p.characterId === characterId);
-      if (existing) { existing.x = x; existing.y = y; existing.kind = kind; }
-      else currentTokenPositions.push({ characterId, kind, x, y, rotation: 0 });
+      if (existing) { existing.x = x; existing.y = y; existing.kind = kind; if (spriteMediaId) existing.spriteMediaId = spriteMediaId; }
+      else currentTokenPositions.push({ characterId, kind, x, y, rotation: 0, spriteMediaId });
       renderTokens(currentTokenPositions);
     }
 
@@ -1080,15 +1263,16 @@
 
     function renderTokenBadges() {
       const bar = document.getElementById('live-token-badges');
-      if (!selectedToken || !currentCharacter) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
-      const skills = currentCharacter.skills || [];
+      const character = selectedToken && myCharacters.find(c => c.id === selectedToken.characterId);
+      if (!character) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
+      const skills = character.skills || [];
       bar.style.display = '';
       bar.innerHTML = `
-        <div class="token-badges-name">${esc(currentCharacter.name)}</div>
+        <div class="token-badges-name">${esc(character.name)}</div>
         <div class="token-badges-hint">↑↓←→ déplacer · Ctrl+↑↓←→ pivoter · Suppr retirer de la carte</div>
         <div class="token-badges-list">
           ${skills.length
-            ? skills.map(s => `<button type="button" class="token-badge-chip" title="${esc(s.description || '')} — 1d100 + 1d${s.diceSides || 6}" onclick="rollSkill('${s.id}')">🎲 ${esc(s.name)}</button>`).join('')
+            ? skills.map(s => `<button type="button" class="token-badge-chip" title="${esc(s.description || '')} — 1d100 + 1d${s.diceSides || 6}" onclick="rollSkill('${s.id}','${character.id}')">🎲 ${esc(s.name)}</button>`).join('')
             : '<span class="text-muted text-sm">Aucune compétence.</span>'}
         </div>
       `;
@@ -1098,13 +1282,12 @@
     const TOKEN_ROTATE_STEP = 15;
 
     document.addEventListener('keydown', (e) => {
-      if (!selectedToken || !currentCharacter) return;
+      if (!selectedToken) return;
       const tag = (document.activeElement && document.activeElement.tagName) || '';
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag) || document.activeElement?.isContentEditable) return;
       if (document.querySelector('.modal-overlay.open')) return;
 
-      const characterId = currentCharacter.id;
-      const kind = 'character';
+      const { characterId, kind } = selectedToken;
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault();
@@ -1150,35 +1333,7 @@
       audio.play().catch(() => {});
     }
 
-    function rollLiveDice() {
-      const count = parseInt(document.getElementById('live-dice-count').value) || 1;
-      const sides = parseInt(document.getElementById('live-dice-sides').value) || 100;
-      socket.emit('adv:player:rollDice', { roleplayId: adventure.id, count, sides });
-    }
 
-    function appendDiceResult(result, fromGm = false) {
-      const el = document.getElementById('live-dice-history');
-      const line = document.createElement('div');
-      line.className = 'journal-entry';
-      line.innerHTML = `${fromGm ? '🎲 MJ' : '🎲 Vous'} : ${result.count}d${result.sides} → ${esc(result.rolls.join(', '))} = <strong>${result.total}</strong>`;
-      el.prepend(line);
-      while (el.children.length > 8) el.removeChild(el.lastChild);
-    }
-
-    function appendSkillResult(result) {
-      const el = document.getElementById('live-dice-history');
-      const line = document.createElement('div');
-      line.className = 'journal-entry';
-      line.innerHTML = `🎲 <strong>${esc(result.skillName)}</strong> (${esc(result.characterName)}) : 1d100 = ${result.percentile} · 1d${result.diceSides} = <strong>${result.skillRoll}</strong>`;
-      el.prepend(line);
-      while (el.children.length > 8) el.removeChild(el.lastChild);
-      showToast(`🎲 ${result.skillName} : ${result.percentile} / d${result.diceSides}=${result.skillRoll}`, 'info');
-    }
-
-
-    document.getElementById('live-msg-input').addEventListener('keydown', e => {
-      if (e.key === 'Enter') sendLiveMessage();
-    });
 
     // ─── Utils ───────────────────────────────────────
     function esc(s) {

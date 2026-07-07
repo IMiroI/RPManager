@@ -4,9 +4,14 @@
 const mongoose = require('mongoose');
 
 const tokenPositionSchema = new mongoose.Schema({
-  // characterId contient soit l'id d'un AdventureCharacter (kind:'character'), soit l'id d'un PNJ (kind:'npc')
+  // characterId contient soit l'id d'un AdventureCharacter (kind:'character'), soit l'id d'un PNJ
+  // (kind:'npc'), soit un id d'instance généré côté serveur pour un décor posé (kind:'sprite') —
+  // plusieurs instances du même sprite peuvent être posées, chacune avec son propre characterId.
   characterId: { type: String, required: true },
-  kind: { type: String, enum: ['character', 'npc'], default: 'character' },
+  kind: { type: String, enum: ['character', 'npc', 'sprite'], default: 'character' },
+  // Média source à afficher, uniquement pour kind==='sprite' (le characterId est un id d'instance,
+  // pas l'id du média — il faut donc le référencer séparément).
+  spriteMediaId: { type: String, default: null },
   x: { type: Number, required: true },
   y: { type: Number, required: true },
   rotation: { type: Number, default: 0 }
@@ -15,7 +20,7 @@ const tokenPositionSchema = new mongoose.Schema({
 const mediaSchema = new mongoose.Schema({
   roleplay: { type: mongoose.Schema.Types.ObjectId, ref: 'Roleplay', required: true, index: true },
   owner: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  kind: { type: String, enum: ['map', 'music', 'token'], required: true },
+  kind: { type: String, enum: ['map', 'music', 'token', 'sprite'], required: true },
   originalName: { type: String, required: true },
   filename: { type: String, required: true },
   mimeType: { type: String, required: true },

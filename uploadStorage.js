@@ -10,6 +10,8 @@ const UPLOAD_ROOT = path.join(__dirname, 'uploads');
 
 const MAP_MIME_EXT = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp' };
 const MUSIC_MIME_EXT = { 'audio/mpeg': '.mp3', 'audio/mp3': '.mp3', 'audio/ogg': '.ogg', 'audio/wav': '.wav' };
+// PNG uniquement — les sprites profitent de la transparence pour s'incruster dans le décor.
+const SPRITE_MIME_EXT = { 'image/png': '.png' };
 
 function makeStorage(mimeExt) {
   return multer.diskStorage({
@@ -50,4 +52,10 @@ const uploadToken = multer({
   limits: { fileSize: 3 * 1024 * 1024 }
 });
 
-module.exports = { uploadMap, uploadMusic, uploadToken, UPLOAD_ROOT };
+const uploadSprite = multer({
+  storage: makeStorage(SPRITE_MIME_EXT),
+  fileFilter: makeFileFilter(SPRITE_MIME_EXT),
+  limits: { fileSize: 3 * 1024 * 1024 }
+});
+
+module.exports = { uploadMap, uploadMusic, uploadToken, uploadSprite, UPLOAD_ROOT };

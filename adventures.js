@@ -5,7 +5,7 @@ const express = require('express');
 const path = require('path');
 const { requireAuth } = require('./auth');
 const adv = require('./adventuresManager');
-const { uploadMap, uploadMusic, uploadToken, UPLOAD_ROOT } = require('./uploadStorage');
+const { uploadMap, uploadMusic, uploadToken, uploadSprite, UPLOAD_ROOT } = require('./uploadStorage');
 const adventureEngine = require('./adventureEngine');
 
 const router = express.Router();
@@ -26,6 +26,11 @@ router.get('/by-code/:code', requireAuth, async (req, res) => {
   const data = await adv.resolveByInviteCode(req.params.code.toUpperCase(), req.session.userId);
   if (!data) return res.status(404).json({ error: 'Aventure introuvable' });
   res.json(data);
+});
+
+// ─── Gestion de mes personnages (tableau de bord, toutes aventures confondues) ───
+router.get('/my-characters', requireAuth, async (req, res) => {
+  res.json(await adv.listCharactersAcrossAdventures(req.session.userId));
 });
 
 // ─── État de la séance en direct ─────────────────────
@@ -137,6 +142,13 @@ router.post('/:id/media/music', requireAuth, handleUpload(uploadMusic.single('fi
   res.status(201).json(media);
 });
 
+router.post('/:id/media/sprite', requireAuth, handleUpload(uploadSprite.single('file')), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Aucun fichier reçu' });
+  const media = await adv.createMedia(req.params.id, req.session.userId, 'sprite', req.file);
+  if (!media) return res.status(404).json({ error: 'Introuvable' });
+  res.status(201).json(media);
+});
+
 router.get('/:id/media', requireAuth, async (req, res) => {
   const media = await adv.listMedia(req.params.id, req.session.userId, req.query.kind);
   if (media === null) return res.status(403).json({ error: 'Accès refusé' });
@@ -166,30 +178,27 @@ router.get('/:id/characters', requireAuth, async (req, res) => {
   res.json(characters);
 });
 
-// ─── Personnage persistant du joueur ─────────────────
+// ─── Personnages persistants du joueur (plusieurs possibles sur une même aventure) ───
 router.get('/:id/character', requireAuth, async (req, res) => {
-  const character = await adv.getCharacter(req.params.id, req.session.userId);
-  if (!character) return res.status(404).json({ error: 'Aucun personnage' });
-  res.json(character);
+  res.json(await adv.listCharactersForPlayer(req.params.id, req.session.userId));
 });
 
 router.post('/:id/character', requireAuth, async (req, res) => {
   const result = await adv.createCharacter(req.params.id, req.session.userId, req.body);
   if (result.error === 'not_found') return res.status(404).json({ error: 'Aventure introuvable' });
-  if (result.error === 'already_exists') return res.status(409).json({ error: 'Vous avez déjà un personnage sur cette aventure' });
   if (result.error === 'invalid_stats') return res.status(400).json({ error: result.message });
   res.status(201).json(result.character);
 });
 
-router.put('/:id/character', requireAuth, async (req, res) => {
-  const character = await adv.updateCharacterProfile(req.params.id, req.session.userId, req.body);
+router.put('/:id/character/:characterId', requireAuth, async (req, res) => {
+  const character = await adv.updateCharacterProfile(req.params.id, req.session.userId, req.params.characterId, req.body);
   if (!character) return res.status(404).json({ error: 'Aucun personnage' });
   res.json(character);
 });
 
-router.post('/:id/character/token', requireAuth, handleUpload(uploadToken.single('file')), async (req, res) => {
+router.post('/:id/character/:characterId/token', requireAuth, handleUpload(uploadToken.single('file')), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Aucun fichier reçu' });
-  const character = await adv.createCharacterToken(req.params.id, req.session.userId, req.file);
+  const character = await adv.createCharacterToken(req.params.id, req.session.userId, req.params.characterId, req.file);
   if (!character) return res.status(404).json({ error: 'Aucun personnage' });
   res.status(201).json(character);
 });
