@@ -217,6 +217,7 @@ async function buildAdventureGmState(roleplayId) {
     nowShowing: seance?.nowShowing || null,
     nowPlaying: seance?.nowPlaying || null,
     tokenPositions,
+    journal: seance?.journal || [], // le MJ voit tout, y compris les jets de compétence PNJ cachés
     characters: characters.map(c => {
       const j = c.toJSON();
       j.playerUsername = c.player?.username;
@@ -668,6 +669,35 @@ io.on('connection', (socket) => {
     const result = adventureEngine.rollDice(count, sides);
     socket.emit('adv:gm:diceResult', result);
     io.to(`adv-players:${roleplayId}`).emit('adv:player:gmDiceResult', result);
+
+    const seance = adventureEngine.getSeance(roleplayId);
+    if (seance) {
+      const entry = adventureEngine.addJournalEntry(seance, {
+        kind: 'dice', visibility: 'public',
+        authorName: 'MJ', authorIcon: '🎭', authorTokenMediaId: null,
+        count: result.count, sides: result.sides, rolls: result.rolls, total: result.total
+      });
+      io.to(`adv-gm:${roleplayId}`).to(`adv-players:${roleplayId}`).emit('adv:journal:entry', entry);
+    }
+  });
+
+  // ─── Journal de groupe : chat visible par le MJ et tous les joueurs connectés ───
+  socket.on('adv:chat:send', ({ roleplayId, text }) => {
+    if (!advRole || advRoleplayId !== roleplayId) return;
+    if (typeof text !== 'string' || !text.trim()) return;
+    const safeText = text.trim().slice(0, 500);
+    const seance = adventureEngine.getSeance(roleplayId);
+    if (!seance) return;
+
+    const author = advRole === 'gm'
+      ? { authorName: 'MJ', authorIcon: '🎭', authorTokenMediaId: null }
+      : (() => {
+          const info = seance.connectedPlayers.get(socket.id);
+          return { authorName: info?.name || 'Joueur', authorIcon: info?.icon || '❓', authorTokenMediaId: info?.tokenMediaId || null };
+        })();
+
+    const entry = adventureEngine.addJournalEntry(seance, { kind: 'chat', visibility: 'public', text: safeText, ...author });
+    io.to(`adv-gm:${roleplayId}`).to(`adv-players:${roleplayId}`).emit('adv:journal:entry', entry);
   });
 
   socket.on('adv:gm:message', async ({ roleplayId, characterId, text }) => {
@@ -701,7 +731,7 @@ io.on('connection', (socket) => {
     advRole = 'player';
     advCharacterId = character.id;
     socket.join(`adv-players:${roleplayId}`);
-    seance.connectedPlayers.set(socket.id, { userId, characterId: character.id, name: character.name });
+    seance.connectedPlayers.set(socket.id, { userId, characterId: character.id, name: character.name, icon: character.icon, tokenMediaId: character.tokenMediaId });
 
     const roleplayDoc = await Roleplay.findById(roleplayId);
     const chapter = (roleplayDoc?.chapters || []).find(c => c.id === seance.currentChapterId)
@@ -721,7 +751,8 @@ io.on('connection', (socket) => {
       tokenPositions,
       partyMembers,
       npcRoster,
-      gridSize: roleplayDoc?.gridSize || 20
+      gridSize: roleplayDoc?.gridSize || 20,
+      journal: (seance.journal || []).filter(e => e.visibility === 'public')
     });
 
     io.to(`adv-gm:${roleplayId}`).emit('adv:gm:playerJoined', { characterId: character.id, name: character.name });
@@ -733,6 +764,17 @@ io.on('connection', (socket) => {
     const result = adventureEngine.rollDice(count, sides);
     socket.emit('adv:player:diceResult', result);
     io.to(`adv-gm:${roleplayId}`).emit('adv:gm:diceResult', result);
+
+    const seance = adventureEngine.getSeance(roleplayId);
+    if (seance) {
+      const info = seance.connectedPlayers.get(socket.id);
+      const entry = adventureEngine.addJournalEntry(seance, {
+        kind: 'dice', visibility: 'public',
+        authorName: info?.name || 'Joueur', authorIcon: info?.icon || '❓', authorTokenMediaId: info?.tokenMediaId || null,
+        count: result.count, sides: result.sides, rolls: result.rolls, total: result.total
+      });
+      io.to(`adv-gm:${roleplayId}`).to(`adv-players:${roleplayId}`).emit('adv:journal:entry', entry);
+    }
   });
 
   // ─── Jet de compétence (1d100 + 1d(taille définie sur la compétence)) ───
@@ -759,6 +801,17 @@ io.on('connection', (socket) => {
       };
       socket.emit('adv:skill:result', result);
       if (!isHidden) socket.to(`adv-players:${roleplayId}`).emit('adv:skill:result', result);
+
+      const seanceNpc = adventureEngine.getSeance(roleplayId);
+      if (seanceNpc) {
+        const entry = adventureEngine.addJournalEntry(seanceNpc, {
+          kind: 'skill', visibility: isHidden ? 'gm' : 'public',
+          authorName: npc.name, authorIcon: npc.icon || '❓', authorTokenMediaId: npc.tokenMediaId || null,
+          skillName: skill.name, diceSides: skill.diceSides || 6, percentile, skillRoll
+        });
+        io.to(`adv-gm:${roleplayId}`).emit('adv:journal:entry', entry);
+        if (!isHidden) io.to(`adv-players:${roleplayId}`).emit('adv:journal:entry', entry);
+      }
       return;
     }
 
@@ -787,6 +840,16 @@ io.on('connection', (socket) => {
           if (info.characterId === characterId) { io.to(socketId).emit('adv:skill:result', result); break; }
         }
       }
+    }
+
+    const seanceChar = adventureEngine.getSeance(roleplayId);
+    if (seanceChar) {
+      const entry = adventureEngine.addJournalEntry(seanceChar, {
+        kind: 'skill', visibility: 'public',
+        authorName: character.name, authorIcon: character.icon || '❓', authorTokenMediaId: character.tokenMediaId || null,
+        skillName: skill.name, diceSides: skill.diceSides || 6, percentile, skillRoll
+      });
+      io.to(`adv-gm:${roleplayId}`).to(`adv-players:${roleplayId}`).emit('adv:journal:entry', entry);
     }
   });
 
@@ -819,7 +882,8 @@ io.on('connection', (socket) => {
       tokenPositions,
       partyMembers,
       npcRoster,
-      gridSize: roleplayDoc?.gridSize || 20
+      gridSize: roleplayDoc?.gridSize || 20,
+      journal: (seance.journal || []).filter(e => e.visibility === 'public')
     });
   });
 

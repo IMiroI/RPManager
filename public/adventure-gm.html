@@ -149,14 +149,18 @@
         <div id="chapter-npcs-list"><p class="text-muted text-sm">Aucun PNJ lié.</p></div>
       </div>
       <div class="gm-section">
-        <div class="gm-section-title">🎲 Jet de dés</div>
-        <div style="display:flex;gap:8px;align-items:center;">
+        <div class="gm-section-title">📜 Journal de groupe</div>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
           <input type="number" class="form-input" id="dice-count" value="1" min="1" max="20" style="width:70px;">
           <span>d</span>
           <input type="number" class="form-input" id="dice-sides" value="100" min="2" max="1000" style="width:80px;">
-          <button class="btn btn-secondary btn-sm" onclick="rollGmDice()">Lancer</button>
+          <button class="btn btn-secondary btn-sm" onclick="rollGmDice()">🎲 Lancer</button>
         </div>
-        <div id="dice-log" style="margin-top:10px;font-size:0.85rem;"></div>
+        <div id="journal-feed" class="journal-feed"></div>
+        <div class="journal-chat-row">
+          <input type="text" class="form-input" id="journal-chat-input" placeholder="Écrire au groupe..." onkeydown="if(event.key==='Enter') sendGroupChat()">
+          <button class="btn btn-gold btn-sm" onclick="sendGroupChat()">➤</button>
+        </div>
       </div>
     </div>
   </div>
@@ -243,25 +247,16 @@
       loadMedia();
     });
 
-    socket.on('adv:gm:diceResult', (result) => {
-      const log = document.getElementById('dice-log');
-      const line = document.createElement('div');
-      line.textContent = `🎲 ${result.count}d${result.sides} → ${result.rolls.join(', ')} = ${result.total}`;
-      log.prepend(line);
-      while (log.children.length > 10) log.removeChild(log.lastChild);
-    });
+    socket.on('adv:gm:diceResult', () => {}); // le résultat arrive aussi via adv:journal:entry (journal de groupe)
 
     socket.on('adv:gm:playerJoined', ({ name }) => showToast(`${name} a rejoint la séance`, 'success'));
     socket.on('adv:gm:playerLeft', () => showToast('Un joueur s\'est déconnecté', 'info'));
 
     socket.on('adv:skill:result', (result) => {
-      const log = document.getElementById('dice-log');
-      const line = document.createElement('div');
-      line.innerHTML = `🎲 <strong>${esc(result.skillName)}</strong> (${esc(result.characterName)}) : 1d100=${result.percentile} · 1d${result.diceSides}=<strong>${result.skillRoll}</strong>`;
-      log.prepend(line);
-      while (log.children.length > 10) log.removeChild(log.lastChild);
       showToast(`🎲 ${result.characterName} — ${result.skillName} : ${result.percentile} / d${result.diceSides}=${result.skillRoll}`, 'info');
     });
+
+    socket.on('adv:journal:entry', (entry) => appendJournalEntry(entry));
 
     socket.on('adv:token:position', ({ characterId, kind, x, y, final }) => updateTokenPosition(characterId, kind, x, y, final));
 
@@ -306,6 +301,8 @@
         gridColumns = gmState.roleplay.gridSize;
         document.getElementById('grid-size-slider').value = gridColumns;
       }
+
+      initJournalFromState(gmState.journal);
 
       const badge = document.getElementById('seance-badge');
       const btn = document.getElementById('btn-open-seance');
@@ -366,9 +363,28 @@
 
     function applyZoom() {
       const outer = document.getElementById('gm-stage-container');
+      const scrollEl = document.getElementById('gm-stage-scroll');
       const content = document.getElementById('gm-zoom-content');
-      content.style.width = `${outer.clientWidth * zoomLevel}px`;
-      content.style.height = `${outer.clientHeight * zoomLevel}px`;
+
+      // Repère le point actuellement au centre de la vue (en fraction de la taille actuelle du
+      // contenu) pour pouvoir le re-centrer après le redimensionnement — le zoom se fait donc
+      // toujours vers le centre de ce qui est affiché, jamais vers le coin haut-gauche.
+      const oldWidth = content.offsetWidth;
+      const oldHeight = content.offsetHeight;
+      let fracX = 0.5, fracY = 0.5;
+      if (oldWidth > 0 && oldHeight > 0) {
+        fracX = (scrollEl.scrollLeft + scrollEl.clientWidth / 2) / oldWidth;
+        fracY = (scrollEl.scrollTop + scrollEl.clientHeight / 2) / oldHeight;
+      }
+
+      const newWidth = outer.clientWidth * zoomLevel;
+      const newHeight = outer.clientHeight * zoomLevel;
+      content.style.width = `${newWidth}px`;
+      content.style.height = `${newHeight}px`;
+
+      scrollEl.scrollLeft = fracX * newWidth - scrollEl.clientWidth / 2;
+      scrollEl.scrollTop = fracY * newHeight - scrollEl.clientHeight / 2;
+
       recomputeGrid();
     }
 
@@ -811,6 +827,61 @@
       socket.emit('adv:gm:rollDice', { roleplayId, count, sides });
     }
 
+    // ─── Journal de groupe (chat + jets de dé/compétences, avec le token de l'auteur) ────
+    let journalEntries = [];
+
+    // Ne (ré)initialise le flux que s'il n'a pas encore de contenu localement, pour ne pas faire
+    // sauter le défilement de quelqu'un qui relit l'historique à chaque rafraîchissement d'état.
+    function initJournalFromState(entries) {
+      if (journalEntries.length === 0 && entries && entries.length > 0) {
+        journalEntries = entries;
+        renderJournalFeed();
+      }
+    }
+
+    function formatJournalEntry(e) {
+      if (e.kind === 'chat') return esc(e.text);
+      if (e.kind === 'skill') return `🎲 <strong>${esc(e.skillName)}</strong> : 1d100=${e.percentile} · 1d${e.diceSides}=<strong>${e.skillRoll}</strong>${e.visibility === 'gm' ? ' <span class="text-muted text-sm">(caché des joueurs)</span>' : ''}`;
+      if (e.kind === 'dice') return `🎲 ${e.count}d${e.sides} → ${e.rolls.join(', ')} = <strong>${e.total}</strong>`;
+      return '';
+    }
+
+    function journalEntryRowHtml(e) {
+      const avatar = e.authorTokenMediaId
+        ? `<img src="/api/adventures/${roleplayId}/media/${e.authorTokenMediaId}/file">`
+        : (e.authorIcon || '❓');
+      return `
+        <div class="journal-entry-row">
+          <div class="journal-entry-avatar">${avatar}</div>
+          <div class="journal-entry-body">
+            <div class="journal-entry-author">${esc(e.authorName)}</div>
+            <div class="journal-entry-content">${formatJournalEntry(e)}</div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderJournalFeed() {
+      const feed = document.getElementById('journal-feed');
+      feed.innerHTML = journalEntries.map(journalEntryRowHtml).join('');
+      feed.scrollTop = feed.scrollHeight;
+    }
+
+    function appendJournalEntry(entry) {
+      journalEntries.push(entry);
+      const feed = document.getElementById('journal-feed');
+      feed.insertAdjacentHTML('beforeend', journalEntryRowHtml(entry));
+      feed.scrollTop = feed.scrollHeight;
+    }
+
+    function sendGroupChat() {
+      const input = document.getElementById('journal-chat-input');
+      const text = input.value.trim();
+      if (!text) return;
+      socket.emit('adv:chat:send', { roleplayId, text });
+      input.value = '';
+    }
+
     // ─── Messagerie privée ────────────────────────────
     function openMsgModal(characterId, name) {
       openMsgCharacterId = characterId;
@@ -865,12 +936,6 @@
       setTimeout(() => t.remove(), 3200);
     }
 
-    document.getElementById('char-edit-modal').addEventListener('click', e => {
-      if (e.target === document.getElementById('char-edit-modal')) closeCharEditModal();
-    });
-    document.getElementById('msg-modal').addEventListener('click', e => {
-      if (e.target === document.getElementById('msg-modal')) closeMsgModal();
-    });
     document.getElementById('msg-input').addEventListener('keydown', e => {
       if (e.key === 'Enter') sendGmMessage();
     });

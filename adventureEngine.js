@@ -8,15 +8,25 @@ const liveSessions = new Map();
 function openSeance(roleplayId) {
   if (liveSessions.has(roleplayId)) return liveSessions.get(roleplayId);
   const state = {
-    connectedPlayers: new Map(), // socketId -> { userId, characterId, name }
+    connectedPlayers: new Map(), // socketId -> { userId, characterId, name, icon, tokenMediaId }
     gmSocketId: null,
     currentChapterId: null,
     nowShowing: null, // { mediaId }
     nowPlaying: null, // { mediaId, startedAt, paused }
+    journal: [], // journal de groupe : chat + jets de dé/compétences, { id, kind, visibility, authorName, authorIcon, authorTokenMediaId, ... }
     openedAt: Date.now()
   };
   liveSessions.set(roleplayId, state);
   return state;
+}
+
+const JOURNAL_MAX_ENTRIES = 100;
+
+function addJournalEntry(seance, entry) {
+  const full = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 8), createdAt: Date.now(), ...entry };
+  seance.journal.push(full);
+  if (seance.journal.length > JOURNAL_MAX_ENTRIES) seance.journal.shift();
+  return full;
 }
 
 function closeSeance(roleplayId) {
@@ -38,4 +48,4 @@ function rollDice(count, sides) {
   return { rolls, total: rolls.reduce((a, b) => a + b, 0), count: safeCount, sides: safeSides };
 }
 
-module.exports = { liveSessions, openSeance, closeSeance, getSeance, isLive, rollDice };
+module.exports = { liveSessions, openSeance, closeSeance, getSeance, isLive, rollDice, addJournalEntry };

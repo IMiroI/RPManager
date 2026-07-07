@@ -412,12 +412,6 @@
       return String(s).replace(/'/g, "\\'").replace(/"/g, '\\"');
     }
 
-    document.addEventListener('click', e => {
-      if (e.target === document.getElementById('confirm-modal')) closeConfirm();
-      if (e.target === document.getElementById('session-modal')) closeSessionModal();
-      if (e.target === document.getElementById('create-modal')) closeCreateModal();
-    });
-
     (async () => {
       const me = await checkAuth();
       if (!me) return;

@@ -612,20 +612,8 @@
       return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
 
-    document.getElementById('step-modal').addEventListener('click', e => {
-      if (e.target === document.getElementById('step-modal')) closeStepModal();
-    });
-
-    document.getElementById('sheet-modal').addEventListener('click', e => {
-      if (e.target === document.getElementById('sheet-modal')) closeSheetModal();
-    });
-
     document.getElementById('inventory-new-item').addEventListener('keydown', e => {
       if (e.key === 'Enter') { e.preventDefault(); addInventoryItem(); }
-    });
-
-    document.getElementById('msg-modal').addEventListener('click', e => {
-      if (e.target === document.getElementById('msg-modal')) closeMsgModal();
     });
 
     document.getElementById('msg-text').addEventListener('keydown', e => {

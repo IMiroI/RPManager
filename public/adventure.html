@@ -289,11 +289,13 @@
               <div class="text-muted text-sm">Voir la fiche complète</div>
             </div>
 
-            <div class="stats-display live-quick-stats" id="live-stats-display"></div>
-
             <div class="live-quick-skills">
-              <div class="form-label">Compétences</div>
-              <div id="live-skills-list"></div>
+              <div class="form-label">📜 Journal de groupe</div>
+              <div id="journal-feed" class="journal-feed"></div>
+              <div class="journal-chat-row">
+                <input type="text" class="form-input" id="journal-chat-input" placeholder="Écrire au groupe..." onkeydown="if(event.key==='Enter') sendGroupChat()">
+                <button class="btn btn-gold btn-sm" onclick="sendGroupChat()">➤</button>
+              </div>
             </div>
 
             <div class="live-toolbar">
@@ -644,6 +646,7 @@
         partyMembers = state.partyMembers || [];
         npcRoster = state.npcRoster || [];
         if (state.gridSize) gridColumns = state.gridSize;
+        initJournalFromState(state.journal);
         if (state.nowShowing) {
           document.getElementById('live-map-media').innerHTML = `<img id="live-map-display" src="${state.nowShowing.url}" onload="recomputeGrid()">`;
           document.getElementById('live-grid-overlay').style.display = gridVisible ? '' : 'none';
@@ -688,6 +691,7 @@
 
       socket.on('adv:token:position', ({ characterId, kind, x, y, final }) => updateTokenPosition(characterId, kind, x, y, final));
       socket.on('adv:skill:result', appendSkillResult);
+      socket.on('adv:journal:entry', (entry) => appendJournalEntry(entry));
 
       socket.on('adv:token:rotated', ({ characterId, rotation }) => {
         const existing = currentTokenPositions.find(p => p.characterId === characterId);
@@ -754,8 +758,63 @@
           <div class="stat-value">${character.stats[def.key] ?? '—'}</div>
         </div>
       `).join('');
-      renderSkillsQuick('live-skills-list', character.skills, true);
       renderJournal('live-journal', character.journal);
+    }
+
+    // ─── Journal de groupe (chat + jets de dé/compétences, avec le token de l'auteur) ────
+    let journalEntries = [];
+
+    // Ne (ré)initialise le flux que s'il n'a pas encore de contenu localement, pour ne pas faire
+    // sauter le défilement si on relit l'historique à chaque rafraîchissement d'état.
+    function initJournalFromState(entries) {
+      if (journalEntries.length === 0 && entries && entries.length > 0) {
+        journalEntries = entries;
+        renderJournalFeed();
+      }
+    }
+
+    function formatJournalEntry(e) {
+      if (e.kind === 'chat') return esc(e.text);
+      if (e.kind === 'skill') return `🎲 <strong>${esc(e.skillName)}</strong> : 1d100=${e.percentile} · 1d${e.diceSides}=<strong>${e.skillRoll}</strong>`;
+      if (e.kind === 'dice') return `🎲 ${e.count}d${e.sides} → ${e.rolls.join(', ')} = <strong>${e.total}</strong>`;
+      return '';
+    }
+
+    function journalEntryRowHtml(e) {
+      const avatar = e.authorTokenMediaId
+        ? `<img src="/api/adventures/${adventure.id}/media/${e.authorTokenMediaId}/file">`
+        : (e.authorIcon || '❓');
+      return `
+        <div class="journal-entry-row">
+          <div class="journal-entry-avatar">${avatar}</div>
+          <div class="journal-entry-body">
+            <div class="journal-entry-author">${esc(e.authorName)}</div>
+            <div class="journal-entry-content">${formatJournalEntry(e)}</div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderJournalFeed() {
+      const feed = document.getElementById('journal-feed');
+      feed.innerHTML = journalEntries.map(journalEntryRowHtml).join('');
+      feed.scrollTop = feed.scrollHeight;
+    }
+
+    function appendJournalEntry(entry) {
+      journalEntries.push(entry);
+      const feed = document.getElementById('journal-feed');
+      feed.insertAdjacentHTML('beforeend', journalEntryRowHtml(entry));
+      feed.scrollTop = feed.scrollHeight;
+    }
+
+    function sendGroupChat() {
+      if (!socket) return;
+      const input = document.getElementById('journal-chat-input');
+      const text = input.value.trim();
+      if (!text) return;
+      socket.emit('adv:chat:send', { roleplayId: adventure.id, text });
+      input.value = '';
     }
 
     function renderSkillsQuick(containerId, skills, clickable) {
@@ -830,9 +889,28 @@
 
     function applyZoom() {
       const outer = document.getElementById('live-map-container');
+      const scrollEl = document.getElementById('live-stage-scroll');
       const content = document.getElementById('live-zoom-content');
-      content.style.width = `${outer.clientWidth * zoomLevel}px`;
-      content.style.height = `${outer.clientHeight * zoomLevel}px`;
+
+      // Repère le point actuellement au centre de la vue (en fraction de la taille actuelle du
+      // contenu) pour pouvoir le re-centrer après le redimensionnement — le zoom se fait donc
+      // toujours vers le centre de ce qui est affiché, jamais vers le coin haut-gauche.
+      const oldWidth = content.offsetWidth;
+      const oldHeight = content.offsetHeight;
+      let fracX = 0.5, fracY = 0.5;
+      if (oldWidth > 0 && oldHeight > 0) {
+        fracX = (scrollEl.scrollLeft + scrollEl.clientWidth / 2) / oldWidth;
+        fracY = (scrollEl.scrollTop + scrollEl.clientHeight / 2) / oldHeight;
+      }
+
+      const newWidth = outer.clientWidth * zoomLevel;
+      const newHeight = outer.clientHeight * zoomLevel;
+      content.style.width = `${newWidth}px`;
+      content.style.height = `${newHeight}px`;
+
+      scrollEl.scrollLeft = fracX * newWidth - scrollEl.clientWidth / 2;
+      scrollEl.scrollTop = fracY * newHeight - scrollEl.clientHeight / 2;
+
       recomputeGrid();
     }
 
@@ -1097,11 +1175,6 @@
       showToast(`🎲 ${result.skillName} : ${result.percentile} / d${result.diceSides}=${result.skillRoll}`, 'info');
     }
 
-    ['char-detail-modal', 'journal-modal', 'dice-modal', 'messages-modal'].forEach(id => {
-      document.getElementById(id).addEventListener('click', e => {
-        if (e.target === document.getElementById(id)) closeModal(id);
-      });
-    });
 
     document.getElementById('live-msg-input').addEventListener('keydown', e => {
       if (e.key === 'Enter') sendLiveMessage();
