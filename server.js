@@ -53,7 +53,7 @@ function generateCode() {
 // ─── Middleware ──────────────────────────────────────
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(rateLimit({
-  windowMs: 15 * 60 * 1000,
+  windowMs: 1 * 60 * 1000,
   max: 100,
   standardHeaders: true,
   legacyHeaders: false,
@@ -208,6 +208,7 @@ async function buildAdventureGmState(roleplayId) {
   const seance = adventureEngine.getSeance(roleplayId);
   const characters = await AdventureCharacter.find({ roleplay: roleplayId }).populate('player', 'username');
   const tokenPositions = seance?.nowShowing ? await adv.getMapTokenPositions(roleplayId, seance.nowShowing.mediaId) : [];
+  const fog = seance?.nowShowing ? await adv.getFog(roleplayId, seance.nowShowing.mediaId) : null;
   return {
     roleplay: roleplayDoc ? { id: roleplayDoc._id.toString(), name: roleplayDoc.name, themeColor: roleplayDoc.themeColor, statDefinitions: roleplayDoc.statDefinitions, gridSize: roleplayDoc.gridSize } : null,
     chapters: roleplayDoc?.chapters || [],
@@ -217,6 +218,8 @@ async function buildAdventureGmState(roleplayId) {
     nowShowing: seance?.nowShowing || null,
     nowPlaying: seance?.nowPlaying || null,
     tokenPositions,
+    fog,
+    initiative: seance?.initiative || null,
     journal: seance?.journal || [], // le MJ voit tout, y compris les jets de compétence PNJ cachés
     characters: characters.map(c => {
       const j = c.toJSON();
@@ -632,8 +635,9 @@ io.on('connection', (socket) => {
     const tokenPositions = await adv.getMapTokenPositions(roleplayId, mediaId);
     const partyMembers = await adv.listPartyMembers(roleplayId);
     const npcRoster = await adv.listNpcRoster(roleplayId);
+    const fog = await adv.getFog(roleplayId, mediaId);
     io.to(`adv-players:${roleplayId}`).emit('adv:player:nowShowing', {
-      mediaId, url: `/api/adventures/${roleplayId}/media/${mediaId}/file`, tokenPositions, partyMembers, npcRoster
+      mediaId, url: `/api/adventures/${roleplayId}/media/${mediaId}/file`, tokenPositions, partyMembers, npcRoster, fog
     });
     io.to(`adv-gm:${roleplayId}`).emit('adv:gm:state', await buildAdventureGmState(roleplayId));
   });
@@ -734,10 +738,10 @@ io.on('connection', (socket) => {
     const author = advRole === 'gm'
       ? { authorName: 'MJ', authorIcon: '🎭', authorTokenMediaId: null }
       : (() => {
-          const info = seance.connectedPlayers.get(socket.id);
-          const c = info?.characters.find(ch => ch.id === characterId);
-          return { authorName: c?.name || 'Joueur', authorIcon: c?.icon || '❓', authorTokenMediaId: c?.tokenMediaId || null };
-        })();
+        const info = seance.connectedPlayers.get(socket.id);
+        const c = info?.characters.find(ch => ch.id === characterId);
+        return { authorName: c?.name || 'Joueur', authorIcon: c?.icon || '❓', authorTokenMediaId: c?.tokenMediaId || null };
+      })();
 
     const entry = adventureEngine.addJournalEntry(seance, { kind: 'chat', visibility: 'public', text: safeText, ...author });
     io.to(`adv-gm:${roleplayId}`).to(`adv-players:${roleplayId}`).emit('adv:journal:entry', entry);
@@ -769,6 +773,7 @@ io.on('connection', (socket) => {
     const tokenPositions = seance.nowShowing ? await adv.getMapTokenPositions(roleplayId, seance.nowShowing.mediaId) : [];
     const partyMembers = await adv.listPartyMembers(roleplayId);
     const npcRoster = await adv.listNpcRoster(roleplayId);
+    const fog = seance.nowShowing ? await adv.getFog(roleplayId, seance.nowShowing.mediaId) : null;
     const nowShowing = seance.nowShowing
       ? { mediaId: seance.nowShowing.mediaId, url: `/api/adventures/${roleplayId}/media/${seance.nowShowing.mediaId}/file` }
       : null;
@@ -781,7 +786,9 @@ io.on('connection', (socket) => {
       tokenPositions,
       partyMembers,
       npcRoster,
+      fog,
       gridSize: roleplayDoc?.gridSize || 20,
+      initiative: seance.initiative,
       journal: (seance.journal || []).filter(e => e.visibility === 'public' || (e.visibility === 'private' && advCharacterIds.has(e.counterpartCharacterId))),
       connectedCount: seance.connectedPlayers.size
     });
@@ -899,14 +906,17 @@ io.on('connection', (socket) => {
     const tokenPositions = seance.nowShowing ? await adv.getMapTokenPositions(roleplayId, seance.nowShowing.mediaId) : [];
     const partyMembers = await adv.listPartyMembers(roleplayId);
     const npcRoster = await adv.listNpcRoster(roleplayId);
+    const fog = seance.nowShowing ? await adv.getFog(roleplayId, seance.nowShowing.mediaId) : null;
     socket.emit('adv:player:state', {
       characters,
       nowShowing: seance.nowShowing,
       nowPlaying: seance.nowPlaying,
       tokenPositions,
+      fog,
       partyMembers,
       npcRoster,
       gridSize: roleplayDoc?.gridSize || 20,
+      initiative: seance.initiative,
       journal: (seance.journal || []).filter(e => e.visibility === 'public' || (e.visibility === 'private' && advCharacterIds.has(e.counterpartCharacterId))),
       connectedCount: seance.connectedPlayers.size
     });
@@ -919,6 +929,98 @@ io.on('connection', (socket) => {
     if (value === null) return;
     socket.emit('adv:gm:state', await buildAdventureGmState(roleplayId));
     io.to(`adv-players:${roleplayId}`).emit('adv:player:gridSize', { gridSize: value });
+  });
+
+  // ─── Suivi d'initiative (combat) — transitoire, propre à la séance en cours, contrôlé par le MJ ───
+  socket.on('adv:gm:initiative:add', ({ roleplayId, kind, entityId, name, icon, tokenMediaId, tokenColor }) => {
+    if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
+    if (kind !== 'character' && kind !== 'npc') return;
+    if (!entityId) return;
+    const seance = adventureEngine.getSeance(roleplayId);
+    if (!seance) return;
+    if (seance.initiative.entries.some(e => e.entityId === entityId)) return; // déjà dans la liste
+    adventureEngine.addInitiativeEntry(seance, {
+      kind, entityId,
+      name: String(name || '?').slice(0, 60),
+      icon: String(icon || '❓').slice(0, 8),
+      tokenMediaId: tokenMediaId || null,
+      tokenColor: adv.sanitizeTokenColor(tokenColor)
+    });
+    io.to(`adv-gm:${roleplayId}`).to(`adv-players:${roleplayId}`).emit('adv:initiative:state', seance.initiative);
+  });
+
+  socket.on('adv:gm:initiative:setScore', ({ roleplayId, entryId, score }) => {
+    if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
+    const seance = adventureEngine.getSeance(roleplayId);
+    if (!seance) return;
+    if (!adventureEngine.setInitiativeScore(seance, entryId, score)) return;
+    io.to(`adv-gm:${roleplayId}`).to(`adv-players:${roleplayId}`).emit('adv:initiative:state', seance.initiative);
+  });
+
+  socket.on('adv:gm:initiative:remove', ({ roleplayId, entryId }) => {
+    if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
+    const seance = adventureEngine.getSeance(roleplayId);
+    if (!seance) return;
+    adventureEngine.removeInitiativeEntry(seance, entryId);
+    io.to(`adv-gm:${roleplayId}`).to(`adv-players:${roleplayId}`).emit('adv:initiative:state', seance.initiative);
+  });
+
+  socket.on('adv:gm:initiative:next', ({ roleplayId }) => {
+    if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
+    const seance = adventureEngine.getSeance(roleplayId);
+    if (!seance) return;
+    adventureEngine.nextInitiativeTurn(seance);
+    io.to(`adv-gm:${roleplayId}`).to(`adv-players:${roleplayId}`).emit('adv:initiative:state', seance.initiative);
+  });
+
+  socket.on('adv:gm:initiative:reset', ({ roleplayId }) => {
+    if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
+    const seance = adventureEngine.getSeance(roleplayId);
+    if (!seance) return;
+    adventureEngine.resetInitiative(seance);
+    io.to(`adv-gm:${roleplayId}`).to(`adv-players:${roleplayId}`).emit('adv:initiative:state', seance.initiative);
+  });
+
+  // ─── Brouillard de guerre (carte actuellement affichée) — masque des zones que les joueurs
+  // découvrent en s'approchant ou que le MJ révèle/masque manuellement. Le MJ voit toujours la
+  // carte entière dans son propre panneau ; seul l'affichage côté joueur applique le brouillard.
+  socket.on('adv:gm:fog:setEnabled', async ({ roleplayId, enabled, gridColumns }) => {
+    if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
+    const seance = adventureEngine.getSeance(roleplayId);
+    if (!seance || !seance.nowShowing) return;
+    const fog = await adv.setFogEnabled(roleplayId, getAdvUserId(), seance.nowShowing.mediaId, enabled, gridColumns);
+    if (!fog) return;
+    io.to(`adv-gm:${roleplayId}`).to(`adv-players:${roleplayId}`).emit('adv:fog:state', { mediaId: seance.nowShowing.mediaId, ...fog });
+  });
+
+  socket.on('adv:gm:fog:setCells', async ({ roleplayId, cells, revealed }) => {
+    if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
+    const seance = adventureEngine.getSeance(roleplayId);
+    if (!seance || !seance.nowShowing) return;
+    const fog = await adv.setFogCells(roleplayId, getAdvUserId(), seance.nowShowing.mediaId, cells, !!revealed);
+    if (!fog) return;
+    io.to(`adv-gm:${roleplayId}`).to(`adv-players:${roleplayId}`).emit('adv:fog:state', { mediaId: seance.nowShowing.mediaId, ...fog });
+  });
+
+  // Remplacement complet (résolution + cases révélées) — utilisé quand le MJ redimensionne la
+  // grille tactique : le client a déjà ré-échantillonné les cases révélées vers la nouvelle
+  // résolution avant d'émettre, on remplace donc l'état plutôt que de le fusionner.
+  socket.on('adv:gm:fog:replaceCells', async ({ roleplayId, gridColumns, cells }) => {
+    if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
+    const seance = adventureEngine.getSeance(roleplayId);
+    if (!seance || !seance.nowShowing) return;
+    const fog = await adv.replaceFogCells(roleplayId, getAdvUserId(), seance.nowShowing.mediaId, gridColumns, cells);
+    if (!fog) return;
+    io.to(`adv-gm:${roleplayId}`).to(`adv-players:${roleplayId}`).emit('adv:fog:state', { mediaId: seance.nowShowing.mediaId, ...fog });
+  });
+
+  socket.on('adv:gm:fog:reset', async ({ roleplayId }) => {
+    if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
+    const seance = adventureEngine.getSeance(roleplayId);
+    if (!seance || !seance.nowShowing) return;
+    const fog = await adv.resetFog(roleplayId, getAdvUserId(), seance.nowShowing.mediaId);
+    if (!fog) return;
+    io.to(`adv-gm:${roleplayId}`).to(`adv-players:${roleplayId}`).emit('adv:fog:state', { mediaId: seance.nowShowing.mediaId, ...fog });
   });
 
   // ─── Token (déplacement sur la carte, façon Roll20) ─────────
@@ -936,12 +1038,21 @@ io.on('connection', (socket) => {
     socket.to(`adv-players:${roleplayId}`).to(`adv-gm:${roleplayId}`).emit('adv:token:position', { characterId, kind, x, y, final: false });
   });
 
-  socket.on('adv:token:drop', async ({ roleplayId, characterId, kind, x, y }) => {
+  // Rayon (en cases de la résolution du brouillard de la carte, fog.gridColumns) découvert autour
+  // d'un personnage qui se déplace.
+  const FOG_REVEAL_RADIUS = 2;
+
+  socket.on('adv:token:drop', async ({ roleplayId, characterId, kind, x, y, col, row }) => {
     if (!canMoveToken(roleplayId, characterId, kind)) return;
     const seance = adventureEngine.getSeance(roleplayId);
     if (!seance || !seance.nowShowing) return;
     await adv.setTokenPosition(roleplayId, seance.nowShowing.mediaId, characterId, x, y, kind);
     io.to(`adv-players:${roleplayId}`).to(`adv-gm:${roleplayId}`).emit('adv:token:position', { characterId, kind, x, y, final: true });
+
+    if (kind === 'character' && Number.isInteger(col) && Number.isInteger(row)) {
+      const fog = await adv.autoRevealFog(roleplayId, seance.nowShowing.mediaId, col, row, FOG_REVEAL_RADIUS);
+      if (fog) io.to(`adv-players:${roleplayId}`).to(`adv-gm:${roleplayId}`).emit('adv:fog:state', { mediaId: seance.nowShowing.mediaId, ...fog });
+    }
   });
 
   // Pose un nouveau sprite de décor sur la carte affichée (MJ uniquement) — un id d'instance est
@@ -976,6 +1087,17 @@ io.on('connection', (socket) => {
     if (!seance || !seance.nowShowing) return;
     await adv.removeTokenPosition(roleplayId, seance.nowShowing.mediaId, characterId);
     io.to(`adv-players:${roleplayId}`).to(`adv-gm:${roleplayId}`).emit('adv:token:removed', { characterId, kind });
+  });
+
+  // Ping visuel (clic droit sur la carte ou un token) — purement transitoire, non persisté.
+  socket.on('adv:ping', ({ roleplayId, x, y, color }) => {
+    if (!advRole || advRoleplayId !== roleplayId) return;
+    const px = Number(x), py = Number(y);
+    if (!Number.isFinite(px) || !Number.isFinite(py)) return;
+    const safeColor = adv.sanitizeTokenColor(color);
+    io.to(`adv-players:${roleplayId}`).to(`adv-gm:${roleplayId}`).emit('adv:ping', {
+      x: Math.min(100, Math.max(0, px)), y: Math.min(100, Math.max(0, py)), color: safeColor
+    });
   });
 
   socket.on('disconnect', () => {

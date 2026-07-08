@@ -283,6 +283,7 @@
             <div class="session-title" id="live-chapter-title">—</div>
           </div>
           <div style="display:flex;align-items:center;gap:10px;">
+            <span class="badge initiative-badge" id="live-initiative-badge" style="display:none;"></span>
             <span class="badge seance-badge live" id="live-seance-badge">Séance ouverte · 0 connecté(s)</span>
             <a href="/" class="btn btn-ghost btn-sm">← Retour</a>
           </div>
@@ -297,7 +298,9 @@
                     <p class="text-muted text-sm">Aucune image affichée par le MJ pour l'instant.</p>
                   </div>
                   <div class="map-grid-overlay" id="live-grid-overlay" style="display:none;"></div>
+                  <div class="fog-layer" id="live-fog-layer"></div>
                   <div class="token-layer" id="live-token-layer"></div>
+                  <div class="ping-layer" id="live-ping-layer"></div>
                 </div>
               </div>
               <div style="position:absolute;bottom:8px;left:8px;z-index:5;display:flex;flex-direction:column-reverse;gap:6px;align-items:flex-start;">
@@ -331,6 +334,7 @@
               <button class="tab-btn" data-tab="live-competences">✨ Comp.</button>
               <button class="tab-btn" data-tab="live-inventaire">🎒 Inv.</button>
               <button class="tab-btn" data-tab="live-notes">📓 Notes</button>
+              <button class="tab-btn" data-tab="live-initiative">⚔ Init.</button>
             </div>
 
             <div class="tab-panel active" id="tab-live-groupe">
@@ -361,6 +365,12 @@
 
             <div class="tab-panel" id="tab-live-notes">
               <div id="live-journal"></div>
+            </div>
+
+            <div class="tab-panel" id="tab-live-initiative">
+              <div class="gm-section-title">⚔ Suivi d'initiative</div>
+              <div id="live-initiative-round-info" class="text-muted text-sm" style="margin-bottom:8px;"></div>
+              <div id="live-initiative-list"></div>
             </div>
           </div>
         </div>
@@ -732,6 +742,7 @@
         if (state.gridSize) gridColumns = state.gridSize;
         initJournalFromState(state.journal);
         updateConnectedBadge(state.connectedCount || 1);
+        currentFog = state.fog || { enabled: false, gridColumns: 20, revealedCells: [] };
         if (state.nowShowing) {
           document.getElementById('live-map-media').innerHTML = `<img id="live-map-display" src="${state.nowShowing.url}" onload="recomputeGrid()">`;
           document.getElementById('live-grid-overlay').style.display = gridVisible ? '' : 'none';
@@ -739,6 +750,7 @@
         recomputeGrid();
         renderTokens(state.tokenPositions || []);
         if (state.nowPlaying) applyNowPlaying(state.nowPlaying);
+        renderInitiativeList(state.initiative);
         showScreen('live');
       });
 
@@ -794,6 +806,45 @@
         updatePlaceTokenButton(currentTokenPositions);
       });
 
+      socket.on('adv:ping', ({ x, y, color }) => spawnPing('live-ping-layer', x, y, color));
+
+      socket.on('adv:initiative:state', (initiative) => renderInitiativeList(initiative));
+
+      socket.on('adv:fog:state', ({ enabled, gridColumns: fogCols, revealedCells }) => {
+        currentFog = { enabled, gridColumns: fogCols, revealedCells };
+        renderFogOverlay();
+      });
+    }
+
+    // ─── Suivi d'initiative (lecture seule côté joueur — contrôlé par le MJ) ────
+    let currentInitiative = { round: 1, currentTurnId: null, entries: [] };
+
+    function renderInitiativeList(initiative) {
+      currentInitiative = initiative || currentInitiative;
+      renderTokens(currentTokenPositions);
+      const badge = document.getElementById('live-initiative-badge');
+      const current = currentInitiative.entries.find(e => e.id === currentInitiative.currentTurnId);
+      if (badge) {
+        if (!currentInitiative.entries.length || !current) {
+          badge.style.display = 'none';
+        } else {
+          badge.style.display = '';
+          badge.textContent = `⚔ Round ${currentInitiative.round} · ${current.name}`;
+        }
+      }
+      const info = document.getElementById('live-initiative-round-info');
+      if (info) info.textContent = currentInitiative.entries.length ? `Round ${currentInitiative.round}` : 'Aucun combat en cours.';
+      const list = document.getElementById('live-initiative-list');
+      if (!list) return;
+      list.innerHTML = currentInitiative.entries.map(e => `
+        <div class="character-item${e.id === currentInitiative.currentTurnId ? ' initiative-active' : ''}">
+          <div class="character-item-icon">${e.tokenMediaId ? `<img src="/api/adventures/${adventure.id}/media/${e.tokenMediaId}/file" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">` : (e.icon || '❓')}</div>
+          <div class="character-item-info">
+            <div class="character-item-name">${esc(e.name)}</div>
+          </div>
+          <div class="text-muted text-sm">${e.score}</div>
+        </div>
+      `).join('');
     }
 
     function updateConnectedBadge(count) {
@@ -995,6 +1046,47 @@
       const rect = content.getBoundingClientRect();
       cellPx = rect.width > 0 ? rect.width / gridColumns : 48;
       content.style.setProperty('--cell-size', `${cellPx}px`);
+      renderFogOverlay();
+    }
+
+    // ─── Brouillard de guerre : dimensions de grille indépendantes du conteneur ────
+    // Le nombre de colonnes vient de fog.gridColumns (figé côté serveur) et le nombre de lignes est
+    // dérivé du ratio NATUREL de l'image (naturalWidth/naturalHeight), identique pour tout le monde
+    // — contrairement à la taille du conteneur à l'écran (dépend de la fenêtre/zoom/barre latérale
+    // de chacun). C'est ce qui garantit que le MJ et les joueurs voient le brouillard exactement aux
+    // mêmes endroits, quelle que soit la forme de leur fenêtre.
+    let currentFog = { enabled: false, gridColumns: 20, revealedCells: [] };
+
+    function fogGridDims() {
+      const cols = currentFog.gridColumns || gridColumns || 20;
+      const img = document.getElementById('live-map-display');
+      if (!img || !img.naturalWidth || !img.naturalHeight) return { cols, rows: cols };
+      return { cols, rows: Math.max(1, Math.round(cols * img.naturalHeight / img.naturalWidth)) };
+    }
+
+    function renderFogOverlay() {
+      const layer = document.getElementById('live-fog-layer');
+      if (!layer) return;
+      if (!currentFog.enabled) { layer.innerHTML = ''; return; }
+      const { cols, rows } = fogGridDims();
+      const cellW = 100 / cols, cellH = 100 / rows;
+      const revealed = new Set(currentFog.revealedCells);
+      let html = '';
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          if (revealed.has(`${c},${r}`)) continue;
+          html += `<div class="fog-cell" style="left:${c * cellW}%;top:${r * cellH}%;width:${cellW}%;height:${cellH}%;"></div>`;
+        }
+      }
+      layer.innerHTML = html;
+    }
+
+    function cellFromPercent(xPercent, yPercent) {
+      const { cols, rows } = fogGridDims();
+      return {
+        col: Math.floor((xPercent / 100) * cols),
+        row: Math.floor((yPercent / 100) * rows)
+      };
     }
 
     // ─── Zoom local (uniquement pour ce joueur, n'affecte ni le MJ ni les autres joueurs —
@@ -1078,6 +1170,29 @@
     liveStageScrollEl.addEventListener('pointerup', onMapPanPointerUp);
     liveStageScrollEl.addEventListener('pointercancel', onMapPanPointerUp);
 
+    // ─── Ping (clic droit sur la carte ou un token) : signale un point aux autres participants ────
+    function spawnPing(layerId, x, y, color) {
+      const layer = document.getElementById(layerId);
+      if (!layer) return;
+      const el = document.createElement('div');
+      el.className = 'ping-marker';
+      el.style.left = `${x}%`;
+      el.style.top = `${y}%`;
+      el.style.setProperty('--ping-color', color || '#c9a227');
+      layer.appendChild(el);
+      el.addEventListener('animationend', () => el.remove());
+      setTimeout(() => el.remove(), 1200);
+    }
+
+    liveStageScrollEl.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      if (!socket) return;
+      const { x, y } = computePercentFromEvent(e);
+      const active = getActiveCharacter();
+      const color = (active && active.tokenColor) || '#c9a227';
+      socket.emit('adv:ping', { roleplayId: adventure.id, x, y, color });
+    });
+
     // ─── Onglets du panneau latéral (Groupe / Stats / Compétences / Inventaire / Notes) ────
     document.querySelectorAll('#live-sidebar-tabs .tab-btn').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -1089,9 +1204,10 @@
       });
     });
 
-    function applyNowShowing({ url, tokenPositions: tp, partyMembers: pm, npcRoster: nr }) {
+    function applyNowShowing({ url, tokenPositions: tp, partyMembers: pm, npcRoster: nr, fog }) {
       document.getElementById('live-map-media').innerHTML = `<img id="live-map-display" src="${url}" onload="recomputeGrid()">`;
       document.getElementById('live-grid-overlay').style.display = gridVisible ? '' : 'none';
+      currentFog = fog || { enabled: false, gridColumns: 20, revealedCells: [] };
       recomputeGrid();
       if (pm) partyMembers = pm;
       if (nr) npcRoster = nr;
@@ -1108,9 +1224,15 @@
     let currentTokenPositions = [];
     let selectedToken = null; // { characterId, kind } — toujours son propre personnage, sélectionné par clic
 
+    function currentInitiativeEntry() {
+      if (!currentInitiative || !currentInitiative.currentTurnId) return null;
+      return currentInitiative.entries.find(e => e.id === currentInitiative.currentTurnId) || null;
+    }
+
     function renderTokens(positions) {
       currentTokenPositions = positions;
       const layer = document.getElementById('live-token-layer');
+      const activeTurn = currentInitiativeEntry();
       layer.innerHTML = positions.map(p => {
         if (p.kind === 'sprite') {
           return `
@@ -1125,8 +1247,9 @@
           ? `<img src="/api/adventures/${adventure.id}/media/${entity.tokenMediaId}/file">`
           : (entity.icon || '❓');
         const selected = selectedToken && selectedToken.characterId === p.characterId ? ' selected' : '';
+        const onTurn = activeTurn && activeTurn.entityId === p.characterId && activeTurn.kind === (p.kind || 'character') ? ' initiative-turn' : '';
         return `
-          <div class="token${selected}" data-character-id="${p.characterId}" data-kind="${p.kind || 'character'}" style="left:${p.x}%;top:${p.y}%;transform:translate(-50%,-50%) rotate(${p.rotation || 0}deg);--token-color:${entity.tokenColor || '#c9a227'};">
+          <div class="token${selected}${onTurn}" data-character-id="${p.characterId}" data-kind="${p.kind || 'character'}" style="left:${p.x}%;top:${p.y}%;transform:translate(-50%,-50%) rotate(${p.rotation || 0}deg);--token-color:${entity.tokenColor || '#c9a227'};">
             ${visual}
             <span class="token-label">${esc(entity.name)}</span>
           </div>
@@ -1152,7 +1275,8 @@
 
     function placeMyToken(characterId) {
       if (!socket) return;
-      socket.emit('adv:token:drop', { roleplayId: adventure.id, characterId, kind: 'character', x: 50, y: 50 });
+      const { col, row } = cellFromPercent(50, 50);
+      socket.emit('adv:token:drop', { roleplayId: adventure.id, characterId, kind: 'character', x: 50, y: 50, col, row });
     }
 
     function attachOwnTokenDragHandlers() {
@@ -1166,6 +1290,7 @@
     let dragMoved = false;
 
     function onTokenPointerDown(e) {
+      if (e.button !== 0) return; // laisse le clic droit déclencher le contextmenu (ping) plutôt que le glisser-déposer
       e.preventDefault();
       const el = e.currentTarget;
       draggingToken = { el, characterId: el.dataset.characterId, kind: el.dataset.kind };
@@ -1218,7 +1343,8 @@
         const { x, y } = gridVisible ? snapToGrid(raw.x, raw.y) : raw;
         el.style.left = `${x}%`;
         el.style.top = `${y}%`;
-        socket.emit('adv:token:drop', { roleplayId: adventure.id, characterId, kind, x, y });
+        const { col, row } = cellFromPercent(x, y);
+        socket.emit('adv:token:drop', { roleplayId: adventure.id, characterId, kind, x, y, col, row });
       }
       el.classList.remove('dragging');
       el.removeEventListener('pointermove', onTokenPointerMove);
@@ -1320,7 +1446,8 @@
         if (gridVisible) ({ x, y } = snapToGrid(x, y));
         current.x = x; current.y = y;
         if (el) { el.style.left = `${x}%`; el.style.top = `${y}%`; }
-        socket.emit('adv:token:drop', { roleplayId: adventure.id, characterId, kind, x, y });
+        const { col, row } = cellFromPercent(x, y);
+        socket.emit('adv:token:drop', { roleplayId: adventure.id, characterId, kind, x, y, col, row });
       }
     });
 

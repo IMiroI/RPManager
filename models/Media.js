@@ -17,6 +17,16 @@ const tokenPositionSchema = new mongoose.Schema({
   rotation: { type: Number, default: 0 }
 }, { _id: false });
 
+// Brouillard de guerre — uniquement pertinent pour kind==='map'. On stocke les cases RÉVÉLÉES
+// (pas les cases masquées) : ainsi on n'a jamais besoin de connaître le nombre total de lignes de
+// la grille (dépendant du ratio d'affichage, calculé côté client) pour représenter "tout masqué" —
+// c'est simplement l'état par défaut de toute case absente de la liste tant que enabled=true.
+const fogSchema = new mongoose.Schema({
+  enabled: { type: Boolean, default: false },
+  gridColumns: { type: Number, default: 20 },
+  revealedCells: { type: [String], default: [] } // "col,row"
+}, { _id: false });
+
 const mediaSchema = new mongoose.Schema({
   roleplay: { type: mongoose.Schema.Types.ObjectId, ref: 'Roleplay', required: true, index: true },
   owner: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -27,7 +37,8 @@ const mediaSchema = new mongoose.Schema({
   size: { type: Number, required: true },
   chapterId: { type: String, default: null },
   // Positions des tokens des personnages, uniquement pertinent pour kind==='map'
-  tokenPositions: { type: [tokenPositionSchema], default: [] }
+  tokenPositions: { type: [tokenPositionSchema], default: [] },
+  fog: { type: fogSchema, default: () => ({}) }
 }, { timestamps: { createdAt: 'createdAt', updatedAt: 'updatedAt' } });
 
 mediaSchema.index({ roleplay: 1, kind: 1 });

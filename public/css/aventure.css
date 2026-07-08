@@ -130,7 +130,7 @@
 }
 .token:hover { box-shadow: 0 0 0 3px var(--accent-light); }
 .token.dragging { cursor: grabbing; z-index: 20; opacity: 0.85; transition: none; }
-.token.selected { box-shadow: 0 0 0 3px var(--gold), 0 2px 8px rgba(0,0,0,0.5); z-index: 10; }
+.token.selected { box-shadow: 0 0 0 3px var(--token-color, var(--gold)), 0 2px 8px rgba(0,0,0,0.5); z-index: 10; }
 .token img { width: 100%; height: 100%; object-fit: cover; }
 /* Sprites de décor : pas de cercle/contour/fond, pour s'incruster dans la carte comme un simple
    élément de décor plutôt qu'un jeton de personnage. */
@@ -255,3 +255,68 @@
   overflow: hidden;
 }
 .token-upload-preview img { width: 100%; height: 100%; object-fit: cover; }
+
+/* ─── Ping (clic droit sur la carte/un token) : cercle qui s'agrandit et s'efface ───── */
+.ping-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 8;
+}
+.ping-marker {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 3px solid var(--ping-color, var(--gold));
+  transform: translate(-50%, -50%);
+  animation: ping-expand 1s ease-out forwards;
+}
+@keyframes ping-expand {
+  0% { width: 10px; height: 10px; opacity: 1; }
+  100% { width: 160px; height: 160px; opacity: 0; }
+}
+
+/* ─── Suivi d'initiative ───────────────────────────────── */
+.initiative-badge {
+  background: var(--gold);
+  color: #1a1a1a;
+  font-weight: 700;
+}
+.character-item.initiative-active {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 2px var(--gold);
+}
+/* Jeton du participant dont c'est le tour — outline plutôt que box-shadow pour ne pas entrer en
+   conflit avec le halo de sélection (.token.selected), qui utilise déjà box-shadow. */
+.token.initiative-turn {
+  outline: 3px solid var(--gold);
+  outline-offset: 2px;
+  animation: initiative-token-pulse 1.2s ease-in-out infinite;
+}
+@keyframes initiative-token-pulse {
+  0%, 100% { outline-color: var(--gold); }
+  50% { outline-color: #fff3c4; }
+}
+
+/* ─── Brouillard de guerre ─────────────────────────────── */
+/* Placé au-dessus de la carte/de la grille mais sous les tokens : les zones non découvertes
+   masquent le décor, jamais les jetons qui s'y trouvent (limite assumée, voir doc de la feature). */
+.fog-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  /* Pas de z-index explicite : l'ordre dans le DOM (avant .token-layer) suffit à la placer
+     dessous les jetons, tout en restant au-dessus de la grille/carte. */
+}
+.fog-cell {
+  position: absolute;
+  background: #05050a;
+}
+/* Aperçu MJ : le brouillard reste toujours visible en transparence pour le MJ, qui voit la carte
+   entière — seul l'affichage joueur applique un brouillard opaque. */
+.fog-cell.gm-preview {
+  background: rgba(5, 5, 10, 0.55);
+}

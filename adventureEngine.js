@@ -14,10 +14,55 @@ function openSeance(roleplayId) {
     nowShowing: null, // { mediaId }
     nowPlaying: null, // { mediaId, startedAt, paused }
     journal: [], // journal de groupe : chat + jets de dé/compétences, { id, kind, visibility, authorName, authorIcon, authorTokenMediaId, ... }
+    initiative: { round: 1, currentTurnId: null, entries: [] }, // suivi d'initiative de combat, transitoire comme le reste de la séance
     openedAt: Date.now()
   };
   liveSessions.set(roleplayId, state);
   return state;
+}
+
+function addInitiativeEntry(seance, { kind, entityId, name, icon, tokenMediaId, tokenColor }) {
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  const score = rollDice(1, 20).rolls[0];
+  const entry = { id, kind, entityId, name, icon: icon || '❓', tokenMediaId: tokenMediaId || null, tokenColor: tokenColor || '#c9a227', score };
+  seance.initiative.entries.push(entry);
+  seance.initiative.entries.sort((a, b) => b.score - a.score);
+  return entry;
+}
+
+function setInitiativeScore(seance, entryId, score) {
+  const entry = seance.initiative.entries.find(e => e.id === entryId);
+  if (!entry) return null;
+  entry.score = Math.max(-999, Math.min(999, parseInt(score) || 0));
+  seance.initiative.entries.sort((a, b) => b.score - a.score);
+  return entry;
+}
+
+function removeInitiativeEntry(seance, entryId) {
+  const before = seance.initiative.entries.length;
+  seance.initiative.entries = seance.initiative.entries.filter(e => e.id !== entryId);
+  if (seance.initiative.currentTurnId === entryId) {
+    seance.initiative.currentTurnId = seance.initiative.entries[0]?.id || null;
+  }
+  return seance.initiative.entries.length !== before;
+}
+
+// Avance au participant suivant dans l'ordre trié par score — repère par id (pas par index) pour
+// rester correct même si les scores ont été réordonnés depuis le tour précédent. Un tour complet
+// (retour au premier participant) incrémente le compteur de round.
+function nextInitiativeTurn(seance) {
+  const entries = seance.initiative.entries;
+  if (!entries.length) { seance.initiative.currentTurnId = null; return seance.initiative; }
+  const idx = entries.findIndex(e => e.id === seance.initiative.currentTurnId);
+  const nextIdx = idx === -1 ? 0 : (idx + 1) % entries.length;
+  if (idx !== -1 && nextIdx === 0) seance.initiative.round += 1;
+  seance.initiative.currentTurnId = entries[nextIdx].id;
+  return seance.initiative;
+}
+
+function resetInitiative(seance) {
+  seance.initiative = { round: 1, currentTurnId: null, entries: [] };
+  return seance.initiative;
 }
 
 const JOURNAL_MAX_ENTRIES = 100;
@@ -48,4 +93,7 @@ function rollDice(count, sides) {
   return { rolls, total: rolls.reduce((a, b) => a + b, 0), count: safeCount, sides: safeSides };
 }
 
-module.exports = { liveSessions, openSeance, closeSeance, getSeance, isLive, rollDice, addJournalEntry };
+module.exports = {
+  liveSessions, openSeance, closeSeance, getSeance, isLive, rollDice, addJournalEntry,
+  addInitiativeEntry, setInitiativeScore, removeInitiativeEntry, nextInitiativeTurn, resetInitiative
+};

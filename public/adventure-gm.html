@@ -100,6 +100,7 @@
       <div class="session-title" id="roleplay-name">Chargement...</div>
     </div>
     <div style="display:flex;align-items:center;gap:10px;">
+      <span class="badge initiative-badge" id="initiative-badge" style="display:none;"></span>
       <span class="badge seance-badge closed" id="seance-badge">Séance fermée</span>
       <button class="btn btn-gold btn-sm" id="btn-open-seance" onclick="toggleSeance()">▶ Ouvrir la séance</button>
       <a href="/" class="btn btn-ghost btn-sm">← Retour</a>
@@ -115,7 +116,9 @@
               <p class="text-muted text-sm">Aucune image affichée. Choisissez un chapitre puis une image à droite.</p>
             </div>
             <div class="map-grid-overlay" id="gm-grid-overlay" style="display:none;"></div>
+            <div class="fog-layer" id="gm-fog-layer"></div>
             <div class="token-layer" id="gm-token-layer"></div>
+            <div class="ping-layer" id="gm-ping-layer"></div>
           </div>
         </div>
         <div class="token-badges-bar" id="gm-token-badges" style="display:none;"></div>
@@ -142,6 +145,8 @@
         <button class="tab-btn" data-tab="musique">🎵 Musique</button>
         <button class="tab-btn" data-tab="pnj">🧝 PNJ</button>
         <button class="tab-btn" data-tab="sprites">🎨 Sprites</button>
+        <button class="tab-btn" data-tab="initiative">⚔ Initiative</button>
+        <button class="tab-btn" data-tab="brouillard">🌫 Brouillard</button>
       </div>
 
       <div class="tab-panel active" id="tab-journal">
@@ -180,6 +185,7 @@
 
       <div class="tab-panel" id="tab-pnj">
         <div class="gm-section-title">🧝 PNJ du chapitre</div>
+        <input type="text" class="form-input" id="npc-search-input" placeholder="Rechercher un PNJ..." oninput="filterChapterNpcs(this.value)" style="margin-bottom:8px;">
         <div id="chapter-npcs-list"><p class="text-muted text-sm">Sélectionnez d'abord un chapitre.</p></div>
       </div>
 
@@ -191,6 +197,38 @@
         </div>
         <input type="text" class="form-input" id="sprite-search-input" placeholder="Rechercher un sprite..." oninput="renderSpriteList(this.value)" style="margin-bottom:8px;">
         <div id="sprite-list"><p class="text-muted text-sm">Aucun sprite pour l'instant.</p></div>
+      </div>
+
+      <div class="tab-panel" id="tab-initiative">
+        <div class="gm-section-title">⚔ Suivi d'initiative</div>
+        <div style="display:flex;gap:6px;margin-bottom:10px;">
+          <select class="form-input" id="initiative-add-select" style="flex:1;"></select>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="addSelectedToInitiative()">+ Ajouter</button>
+        </div>
+        <div id="initiative-round-info" class="text-muted text-sm" style="margin-bottom:8px;"></div>
+        <div id="initiative-list"></div>
+        <div style="display:flex;gap:6px;margin-top:10px;">
+          <button type="button" class="btn btn-gold btn-sm" onclick="nextInitiativeTurn()" style="flex:1;">▶ Tour suivant</button>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="resetInitiative()">↺ Réinitialiser</button>
+        </div>
+      </div>
+
+      <div class="tab-panel" id="tab-brouillard">
+        <div class="gm-section-title">🌫 Brouillard de guerre</div>
+        <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;cursor:pointer;">
+          <input type="checkbox" id="fog-enabled-checkbox" onchange="toggleFogEnabled(this.checked)">
+          <span>Activer le brouillard sur cette carte</span>
+        </label>
+        <div class="text-muted text-sm" style="margin-bottom:10px;">Les joueurs découvrent la carte en s'approchant avec leur personnage, ou par vos soins ci-dessous. Vous voyez toujours la carte entière (aperçu léger des zones masquées).</div>
+        <div style="display:flex;gap:6px;margin-bottom:8px;">
+          <button type="button" class="btn btn-secondary btn-sm" id="fog-paint-reveal-btn" style="flex:1;" onclick="toggleFogPaint('reveal')">🖌 Peindre : révéler</button>
+          <button type="button" class="btn btn-secondary btn-sm" id="fog-paint-hide-btn" style="flex:1;" onclick="toggleFogPaint('hide')">🖌 Peindre : masquer</button>
+        </div>
+        <div class="text-muted text-sm" id="fog-paint-hint" style="margin-bottom:10px;display:none;">Cliquez-glissez sur la carte pour peindre. Cliquez à nouveau sur le bouton pour arrêter.</div>
+        <div style="display:flex;gap:6px;">
+          <button type="button" class="btn btn-gold btn-sm" style="flex:1;" onclick="revealAllFog()">👁 Tout révéler</button>
+          <button type="button" class="btn btn-ghost btn-sm" style="flex:1;" onclick="hideAllFog()">↺ Tout masquer</button>
+        </div>
       </div>
     </div>
   </div>
@@ -233,6 +271,28 @@
     </div>
   </div>
 
+  <!-- NPC detail modal (read-only fiche + jets de compétences) -->
+  <div class="modal-overlay" id="npc-detail-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title" id="npc-detail-title">PNJ</h3>
+        <button class="modal-close" onclick="closeNpcDetailModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="npc-detail-subtitle" class="text-muted text-sm" style="margin-bottom:12px;"></div>
+        <div id="npc-detail-backstory" style="margin-bottom:16px; white-space:pre-wrap;"></div>
+        <div class="stats-grid" id="npc-detail-stats"></div>
+        <div class="form-group" style="margin-top:20px;">
+          <label class="form-label">Compétences</label>
+          <div id="npc-detail-skills-list"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeNpcDetailModal()">Fermer</button>
+      </div>
+    </div>
+  </div>
+
 
   <div class="toast-container" id="toast-container"></div>
 
@@ -268,6 +328,22 @@
     });
 
     socket.on('adv:journal:entry', (entry) => appendJournalEntry(entry));
+
+    socket.on('adv:initiative:state', (initiative) => {
+      if (!gmState) return;
+      gmState.initiative = initiative;
+      renderInitiativeList();
+      renderInitiativeBadge();
+      renderTokens(currentTokenPositions);
+    });
+
+    socket.on('adv:fog:state', ({ mediaId, enabled, gridColumns: fogCols, revealedCells }) => {
+      if (!gmState || mediaId !== currentMediaId) return;
+      gmState.fog = { enabled, gridColumns: fogCols, revealedCells };
+      const checkbox = document.getElementById('fog-enabled-checkbox');
+      if (checkbox) checkbox.checked = enabled;
+      renderFogOverlay();
+    });
 
     socket.on('adv:token:position', ({ characterId, kind, x, y, final, spriteMediaId }) => updateTokenPosition(characterId, kind, x, y, final, spriteMediaId));
 
@@ -320,10 +396,15 @@
         if (current) selectedChapterId = current.id;
       }
 
+      const fogCheckbox = document.getElementById('fog-enabled-checkbox');
+      if (fogCheckbox) fogCheckbox.checked = !!gmState.fog?.enabled;
+
       renderStage();
       renderChapters();
       renderChapterAssets();
       renderCharacters();
+      renderInitiativeList();
+      renderInitiativeBadge();
     }
 
     function toggleSeance() {
@@ -353,12 +434,52 @@
       const rect = content.getBoundingClientRect();
       cellPx = (currentMediaId && rect.width > 0) ? rect.width / gridColumns : 48;
       content.style.setProperty('--cell-size', `${cellPx}px`);
+      renderFogOverlay();
+    }
+
+    // ─── Brouillard de guerre : dimensions de grille indépendantes du conteneur ────
+    // Le nombre de colonnes vient de fog.gridColumns (figé côté serveur, voir setFogEnabled) et le
+    // nombre de lignes est dérivé du ratio NATUREL de l'image (naturalWidth/naturalHeight), qui est
+    // le même pour tout le monde — contrairement à la taille du conteneur à l'écran (dépend de la
+    // fenêtre/zoom/barre latérale de chacun). C'est ce qui garantit que le MJ et les joueurs voient
+    // le brouillard exactement aux mêmes endroits, quelle que soit la forme de leur fenêtre.
+    function fogGridDims() {
+      const cols = gmState?.fog?.gridColumns || gridColumns || 20;
+      const img = document.getElementById('gm-stage-image');
+      if (!img || !img.naturalWidth || !img.naturalHeight) return { cols, rows: cols };
+      return { cols, rows: Math.max(1, Math.round(cols * img.naturalHeight / img.naturalWidth)) };
+    }
+
+    // Convertit les cases révélées d'une ANCIENNE résolution vers une NOUVELLE (même image, donc
+    // même ratio naturel) — on échantillonne le centre de chaque nouvelle case dans l'ancienne
+    // grille. Nécessaire pour que le brouillard continue de masquer des cases ENTIÈRES à la taille
+    // courante quelle que soit la valeur du curseur, sans perdre ce qui a déjà été découvert.
+    function resampleFogCells(oldFog, newCols) {
+      const img = document.getElementById('gm-stage-image');
+      const naturalRatio = (img && img.naturalWidth && img.naturalHeight) ? img.naturalHeight / img.naturalWidth : 1;
+      const oldCols = oldFog.gridColumns || newCols;
+      const oldRows = Math.max(1, Math.round(oldCols * naturalRatio));
+      const newRows = Math.max(1, Math.round(newCols * naturalRatio));
+      const revealed = new Set(oldFog.revealedCells);
+      const result = [];
+      for (let r = 0; r < newRows; r++) {
+        for (let c = 0; c < newCols; c++) {
+          const oldCol = Math.floor(((c + 0.5) / newCols) * oldCols);
+          const oldRow = Math.floor(((r + 0.5) / newRows) * oldRows);
+          if (revealed.has(`${oldCol},${oldRow}`)) result.push({ col: c, row: r });
+        }
+      }
+      return result;
     }
 
     function onGridSizeInput(value) {
       gridColumns = Math.min(60, Math.max(5, parseInt(value) || 20));
       recomputeGrid();
       socket.emit('adv:gm:setGridSize', { roleplayId, gridSize: gridColumns });
+      if (gmState?.fog && gmState.fog.revealedCells.length) {
+        const cells = resampleFogCells(gmState.fog, gridColumns);
+        socket.emit('adv:gm:fog:replaceCells', { roleplayId, gridColumns, cells });
+      }
     }
 
     // ─── Zoom local (uniquement côté de ce spectateur, n'affecte ni les autres ni la position
@@ -415,6 +536,7 @@
     let mapPanning = null;
 
     function onMapPanPointerDown(e) {
+      if (fogPaintMode) return; // le mode peinture du brouillard prend la main sur le pan
       if (e.button !== 0 || e.target.closest('.token')) return; // laisse le glisser-déposer du token gérer ce cas
       e.preventDefault();
       const scrollEl = document.getElementById('gm-stage-scroll');
@@ -441,6 +563,89 @@
     gmStageScrollEl.addEventListener('pointermove', onMapPanPointerMove);
     gmStageScrollEl.addEventListener('pointerup', onMapPanPointerUp);
     gmStageScrollEl.addEventListener('pointercancel', onMapPanPointerUp);
+
+    // ─── Brouillard de guerre : peinture à la souris (glisser pour révéler/masquer des cases) ────
+    let fogPaintMode = null; // null | 'reveal' | 'hide'
+    let fogPainting = false;
+    let fogStrokeCells = new Set();
+
+    function cellFromEvent(e) {
+      const content = document.getElementById('gm-zoom-content');
+      const rect = content.getBoundingClientRect();
+      const { cols, rows } = fogGridDims();
+      return {
+        col: Math.floor(((e.clientX - rect.left) / rect.width) * cols),
+        row: Math.floor(((e.clientY - rect.top) / rect.height) * rows)
+      };
+    }
+
+    function paintFogCellAt(e) {
+      const { col, row } = cellFromEvent(e);
+      if (col < 0 || row < 0) return;
+      const key = `${col},${row}`;
+      if (fogStrokeCells.has(key)) return;
+      fogStrokeCells.add(key);
+      if (!gmState.fog) gmState.fog = { enabled: true, gridColumns, revealedCells: [] };
+      const set = new Set(gmState.fog.revealedCells);
+      if (fogPaintMode === 'reveal') set.add(key); else set.delete(key);
+      gmState.fog.revealedCells = [...set];
+      renderFogOverlay();
+    }
+
+    function onFogPaintPointerDown(e) {
+      if (!fogPaintMode || e.button !== 0) return;
+      e.preventDefault();
+      fogPainting = true;
+      fogStrokeCells = new Set();
+      gmStageScrollEl.setPointerCapture(e.pointerId);
+      paintFogCellAt(e);
+    }
+    function onFogPaintPointerMove(e) {
+      if (!fogPainting) return;
+      paintFogCellAt(e);
+    }
+    function onFogPaintPointerUp() {
+      if (!fogPainting) return;
+      fogPainting = false;
+      if (fogStrokeCells.size) {
+        socket.emit('adv:gm:fog:setCells', {
+          roleplayId,
+          cells: [...fogStrokeCells].map(k => { const [col, row] = k.split(',').map(Number); return { col, row }; }),
+          revealed: fogPaintMode === 'reveal'
+        });
+      }
+      fogStrokeCells = new Set();
+    }
+
+    gmStageScrollEl.addEventListener('pointerdown', onFogPaintPointerDown);
+    gmStageScrollEl.addEventListener('pointermove', onFogPaintPointerMove);
+    gmStageScrollEl.addEventListener('pointerup', onFogPaintPointerUp);
+    gmStageScrollEl.addEventListener('pointercancel', onFogPaintPointerUp);
+
+    // ─── Ping (clic droit sur la carte ou un token) : signale un point aux autres participants ────
+    function spawnPing(layerId, x, y, color) {
+      const layer = document.getElementById(layerId);
+      if (!layer) return;
+      const el = document.createElement('div');
+      el.className = 'ping-marker';
+      el.style.left = `${x}%`;
+      el.style.top = `${y}%`;
+      el.style.setProperty('--ping-color', color || '#c9a227');
+      layer.appendChild(el);
+      el.addEventListener('animationend', () => el.remove());
+      setTimeout(() => el.remove(), 1200);
+    }
+
+    gmStageScrollEl.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      if (!currentMediaId) return;
+      const { x, y } = computePercentFromEvent(e);
+      const entity = selectedToken ? findTokenEntity(selectedToken.characterId, selectedToken.kind) : null;
+      const color = (entity && entity.tokenColor) || '#c9a227';
+      socket.emit('adv:ping', { roleplayId, x, y, color });
+    });
+
+    socket.on('adv:ping', ({ x, y, color }) => spawnPing('gm-ping-layer', x, y, color));
 
     // ─── Onglets du panneau latéral (Journal / Chapitre / Musique / PNJ) ────
     document.querySelectorAll('#gm-sidebar-tabs .tab-btn').forEach(btn => {
@@ -490,10 +695,17 @@
     let currentTokenPositions = [];
     let selectedToken = null; // { characterId, kind } — token sélectionné par clic, pour badges de compétences + clavier
 
+    function currentInitiativeEntry() {
+      const initiative = gmState?.initiative;
+      if (!initiative || !initiative.currentTurnId) return null;
+      return initiative.entries.find(e => e.id === initiative.currentTurnId) || null;
+    }
+
     function renderTokens(positions) {
       currentTokenPositions = positions;
       const layer = document.getElementById('gm-token-layer');
       if (!currentMediaId) { layer.innerHTML = ''; return; }
+      const activeTurn = currentInitiativeEntry();
       layer.innerHTML = positions.map(p => {
         if (p.kind === 'sprite') {
           const selected = selectedToken && selectedToken.characterId === p.characterId ? ' selected' : '';
@@ -509,8 +721,9 @@
           ? `<img src="/api/adventures/${roleplayId}/media/${entity.tokenMediaId}/file">`
           : (entity.icon || '❓');
         const selected = selectedToken && selectedToken.characterId === p.characterId ? ' selected' : '';
+        const onTurn = activeTurn && activeTurn.entityId === p.characterId && activeTurn.kind === (p.kind || 'character') ? ' initiative-turn' : '';
         return `
-          <div class="token${selected}" data-character-id="${p.characterId}" data-kind="${p.kind || 'character'}" style="left:${p.x}%;top:${p.y}%;transform:translate(-50%,-50%) rotate(${p.rotation || 0}deg);--token-color:${entity.tokenColor || '#c9a227'};">
+          <div class="token${selected}${onTurn}" data-character-id="${p.characterId}" data-kind="${p.kind || 'character'}" style="left:${p.x}%;top:${p.y}%;transform:translate(-50%,-50%) rotate(${p.rotation || 0}deg);--token-color:${entity.tokenColor || '#c9a227'};">
             ${visual}
             <span class="token-label">${esc(entity.name)}</span>
           </div>
@@ -530,6 +743,7 @@
     let dragMoved = false;
 
     function onTokenPointerDown(e) {
+      if (e.button !== 0) return; // laisse le clic droit déclencher le contextmenu (ping) plutôt que le glisser-déposer
       e.preventDefault();
       const el = e.currentTarget;
       draggingToken = { el, characterId: el.dataset.characterId, kind: el.dataset.kind };
@@ -753,19 +967,23 @@
       }
     }
 
+    let chapterNpcsFull = [];
+    let npcSearchFilter = '';
+
     function renderChapterAssets() {
       const chapter = (gmState.chapters || []).find(c => c.id === selectedChapterId);
       if (!chapter) {
         const placeholder = '<p class="text-muted text-sm">Sélectionnez d\'abord un chapitre dans l\'onglet Chapitre.</p>';
         document.getElementById('chapter-maps-list').innerHTML = placeholder;
         document.getElementById('chapter-music-list').innerHTML = placeholder;
+        chapterNpcsFull = [];
         document.getElementById('chapter-npcs-list').innerHTML = placeholder;
         return;
       }
 
       const maps = mediaList.filter(m => m.kind === 'map' && (chapter.mediaIds || []).includes(m.id));
       const music = mediaList.filter(m => m.kind === 'music' && (chapter.mediaIds || []).includes(m.id));
-      const npcs = (gmState.npcs || []).filter(n => (chapter.npcIds || []).includes(n.id));
+      chapterNpcsFull = (gmState.npcs || []).filter(n => (chapter.npcIds || []).includes(n.id));
 
       document.getElementById('chapter-maps-list').innerHTML = maps.length ? maps.map(m => `
         <div class="chapter-media-row" onclick="showMedia('${m.id}')">
@@ -782,17 +1000,74 @@
         </div>
       `).join('') : '<p class="text-muted text-sm">Aucune musique liée à ce chapitre.</p>';
 
+      renderChapterNpcList();
+    }
+
+    function renderChapterNpcList() {
+      const f = (npcSearchFilter || '').toLowerCase();
+      const npcs = chapterNpcsFull.filter(n => n.name.toLowerCase().includes(f));
       const placedIds = new Set((gmState.tokenPositions || []).map(p => p.characterId));
       document.getElementById('chapter-npcs-list').innerHTML = npcs.length ? npcs.map(n => `
-        <div class="character-item">
+        <div class="character-item" onclick="openNpcDetailModal('${n.id}')" style="cursor:pointer;">
           <div class="character-item-icon">${n.tokenMediaId ? `<img src="/api/adventures/${roleplayId}/media/${n.tokenMediaId}/file" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">` : (n.icon || '❓')}</div>
           <div class="character-item-info">
             <div class="character-item-name">${esc(n.name)}</div>
             <div class="character-item-title">${esc(n.role || n.disposition || '')}</div>
           </div>
-          ${!placedIds.has(n.id) ? `<button class="btn btn-secondary btn-sm" onclick="placeTokenOnMap('${n.id}','npc')" title="Placer sur la carte">📍</button>` : ''}
+          ${!placedIds.has(n.id) ? `<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); placeTokenOnMap('${n.id}','npc')" title="Placer sur la carte">📍</button>` : ''}
         </div>
-      `).join('') : '<p class="text-muted text-sm">Aucun PNJ lié à ce chapitre.</p>';
+      `).join('') : (chapterNpcsFull.length
+        ? '<p class="text-muted text-sm">Aucun PNJ ne correspond à la recherche.</p>'
+        : '<p class="text-muted text-sm">Aucun PNJ lié à ce chapitre.</p>');
+    }
+
+    function filterChapterNpcs(value) {
+      npcSearchFilter = value;
+      renderChapterNpcList();
+    }
+
+    let viewingNpcId = null;
+
+    function openNpcDetailModal(npcId) {
+      const n = (gmState.npcs || []).find(x => x.id === npcId);
+      if (!n) return;
+      viewingNpcId = npcId;
+      document.getElementById('npc-detail-title').textContent = n.name;
+      document.getElementById('npc-detail-subtitle').textContent = [n.role, n.disposition].filter(Boolean).join(' · ') || 'Aucune information.';
+      document.getElementById('npc-detail-backstory').textContent = n.backstory || 'Aucune biographie renseignée.';
+      const statDefs = gmState.roleplay?.statDefinitions || [];
+      document.getElementById('npc-detail-stats').innerHTML = statDefs.length ? statDefs.map(def => `
+        <div class="stat-input-group">
+          <label class="stat-label">${esc(def.label)}</label>
+          <input type="number" class="stat-input" value="${n.stats?.[def.key] ?? 0}" min="0" disabled>
+        </div>
+      `).join('') : '<p class="text-muted text-sm">Aucune statistique définie pour cette aventure.</p>';
+      const skills = [
+        ...(n.visibleSkills || []).map(s => ({ ...s, locked: false })),
+        ...(n.hiddenSkills || []).map(s => ({ ...s, locked: true }))
+      ];
+      document.getElementById('npc-detail-skills-list').innerHTML = skills.length ? skills.map(s => `
+        <div class="skill-item">
+          <div class="skill-item-inputs">
+            <div style="display:flex;gap:8px;align-items:center;">
+              <span style="flex:1;">${s.locked ? '🔒' : '🎲'} ${esc(s.name)}</span>
+              <button type="button" class="btn btn-gold btn-sm" onclick="rollNpcDetailSkill('${s.id}')" title="Lancer 1d100 + 1d${s.diceSides || 6}">🎲</button>
+            </div>
+            ${s.description ? `<div class="text-muted text-sm">${esc(s.description)}</div>` : ''}
+          </div>
+        </div>
+      `).join('') : '<p class="text-muted text-sm">Aucune compétence.</p>';
+      document.getElementById('npc-detail-modal').classList.add('open');
+    }
+
+    function closeNpcDetailModal() {
+      document.getElementById('npc-detail-modal').classList.remove('open');
+      viewingNpcId = null;
+    }
+
+    function rollNpcDetailSkill(skillId) {
+      if (!viewingNpcId) return;
+      socket.emit('adv:skill:roll', { roleplayId, characterId: viewingNpcId, kind: 'npc', skillId });
     }
 
     function showMedia(mediaId) { socket.emit('adv:gm:showMedia', { roleplayId, mediaId }); }
@@ -842,7 +1117,7 @@
       const connectedIds = new Set(gmState.connectedPlayers.flatMap(p => (p.characters || []).map(c => c.id)));
       const placedIds = new Set((gmState.tokenPositions || []).map(p => p.characterId));
       list.innerHTML = characters.map(c => `
-        <div class="player-chip">
+        <div class="player-chip" onclick="openCharEditModal('${c.id}')" style="cursor:pointer;">
           <div class="player-chip-icon">
             <span>${c.icon || '❓'}</span>
             <span class="connected-dot ${connectedIds.has(c.id) ? 'online' : ''}" style="position:absolute;bottom:0;right:0;"></span>
@@ -850,11 +1125,120 @@
           <div class="player-chip-name" title="${esc(c.name)}">${esc(c.name)}</div>
           <div class="text-muted text-sm" style="margin-bottom:8px;">${esc(c.playerUsername || '?')}</div>
           <div class="player-chip-actions">
-            <button class="btn btn-ghost btn-sm" onclick="openCharEditModal('${c.id}')">✏</button>
-            ${!placedIds.has(c.id) ? `<button class="btn btn-gold btn-sm" onclick="placeTokenOnMap('${c.id}','character')" title="Placer sur la carte">📍</button>` : ''}
+            <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); openCharEditModal('${c.id}')">✏</button>
+            ${!placedIds.has(c.id) ? `<button class="btn btn-gold btn-sm" onclick="event.stopPropagation(); placeTokenOnMap('${c.id}','character')" title="Placer sur la carte">📍</button>` : ''}
           </div>
         </div>
       `).join('');
+    }
+
+    // ─── Suivi d'initiative (combat) ────
+    function renderInitiativeAddOptions() {
+      const select = document.getElementById('initiative-add-select');
+      if (!select || !gmState) return;
+      const already = new Set((gmState.initiative?.entries || []).map(e => e.entityId));
+      const chars = (gmState.characters || []).filter(c => !already.has(c.id)).map(c => ({ id: c.id, kind: 'character', name: c.name, icon: c.icon, tokenMediaId: c.tokenMediaId, tokenColor: c.tokenColor }));
+      const npcs = (gmState.npcs || []).filter(n => !already.has(n.id)).map(n => ({ id: n.id, kind: 'npc', name: n.name, icon: n.icon, tokenMediaId: n.tokenMediaId, tokenColor: n.tokenColor }));
+      const options = [...chars, ...npcs];
+      select.innerHTML = options.length
+        ? options.map(o => `<option value="${o.kind}:${o.id}">${o.kind === 'npc' ? '🧝' : '🧑'} ${esc(o.name)}</option>`).join('')
+        : '<option value="">Tous les participants sont déjà dans la liste</option>';
+    }
+
+    function addSelectedToInitiative() {
+      const select = document.getElementById('initiative-add-select');
+      const [kind, id] = (select.value || '').split(':');
+      if (!kind || !id) return;
+      const pool = kind === 'npc' ? (gmState.npcs || []) : (gmState.characters || []);
+      const entity = pool.find(x => x.id === id);
+      if (!entity) return;
+      socket.emit('adv:gm:initiative:add', {
+        roleplayId, kind, entityId: entity.id, name: entity.name, icon: entity.icon,
+        tokenMediaId: entity.tokenMediaId, tokenColor: entity.tokenColor
+      });
+    }
+
+    function renderInitiativeList() {
+      const initiative = gmState?.initiative || { round: 1, currentTurnId: null, entries: [] };
+      const info = document.getElementById('initiative-round-info');
+      if (info) info.textContent = initiative.entries.length ? `Round ${initiative.round}` : 'Aucun participant pour l\'instant.';
+      const list = document.getElementById('initiative-list');
+      if (list) {
+        list.innerHTML = initiative.entries.map(e => `
+          <div class="character-item${e.id === initiative.currentTurnId ? ' initiative-active' : ''}">
+            <div class="character-item-icon">${e.tokenMediaId ? `<img src="/api/adventures/${roleplayId}/media/${e.tokenMediaId}/file" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">` : (e.icon || '❓')}</div>
+            <div class="character-item-info">
+              <div class="character-item-name">${esc(e.name)}</div>
+            </div>
+            <input type="number" class="form-input" value="${e.score}" style="width:56px;" onchange="setInitiativeScore('${e.id}', this.value)">
+            <button type="button" class="btn btn-ghost btn-sm" onclick="removeFromInitiative('${e.id}')">✕</button>
+          </div>
+        `).join('');
+      }
+      renderInitiativeAddOptions();
+    }
+
+    function setInitiativeScore(entryId, value) {
+      socket.emit('adv:gm:initiative:setScore', { roleplayId, entryId, score: parseInt(value) || 0 });
+    }
+
+    function removeFromInitiative(entryId) {
+      socket.emit('adv:gm:initiative:remove', { roleplayId, entryId });
+    }
+
+    function nextInitiativeTurn() { socket.emit('adv:gm:initiative:next', { roleplayId }); }
+    function resetInitiative() { socket.emit('adv:gm:initiative:reset', { roleplayId }); }
+
+    function renderInitiativeBadge() {
+      const badge = document.getElementById('initiative-badge');
+      if (!badge) return;
+      const initiative = gmState?.initiative;
+      const current = initiative?.entries.find(e => e.id === initiative.currentTurnId);
+      if (!initiative || !initiative.entries.length || !current) { badge.style.display = 'none'; return; }
+      badge.style.display = '';
+      badge.textContent = `⚔ Round ${initiative.round} · ${current.name}`;
+    }
+
+    // ─── Brouillard de guerre ────
+    function renderFogOverlay() {
+      const layer = document.getElementById('gm-fog-layer');
+      if (!layer) return;
+      const fog = gmState?.fog;
+      if (!fog || !fog.enabled || !currentMediaId) { layer.innerHTML = ''; return; }
+      const { cols, rows } = fogGridDims();
+      const cellW = 100 / cols, cellH = 100 / rows;
+      const revealed = new Set(fog.revealedCells);
+      let html = '';
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          if (revealed.has(`${c},${r}`)) continue;
+          html += `<div class="fog-cell gm-preview" style="left:${c * cellW}%;top:${r * cellH}%;width:${cellW}%;height:${cellH}%;"></div>`;
+        }
+      }
+      layer.innerHTML = html;
+    }
+
+    function toggleFogEnabled(enabled) {
+      socket.emit('adv:gm:fog:setEnabled', { roleplayId, enabled, gridColumns });
+    }
+
+    function toggleFogPaint(mode) {
+      fogPaintMode = fogPaintMode === mode ? null : mode;
+      document.getElementById('fog-paint-reveal-btn').classList.toggle('btn-gold', fogPaintMode === 'reveal');
+      document.getElementById('fog-paint-hide-btn').classList.toggle('btn-gold', fogPaintMode === 'hide');
+      document.getElementById('fog-paint-hint').style.display = fogPaintMode ? '' : 'none';
+    }
+
+    function revealAllFog() {
+      if (!currentMediaId) return;
+      const { cols, rows } = fogGridDims();
+      const cells = [];
+      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) cells.push({ col: c, row: r });
+      socket.emit('adv:gm:fog:setCells', { roleplayId, cells, revealed: true });
+    }
+
+    function hideAllFog() {
+      socket.emit('adv:gm:fog:reset', { roleplayId });
     }
 
     function openCharEditModal(characterId) {

@@ -488,6 +488,113 @@ async function removeTokenPosition(roleplayId, mediaId, characterId) {
   return media.tokenPositions;
 }
 
+// ─── Brouillard de guerre (par carte) ───────────────────────────────────────
+// On stocke uniquement les cases révélées (voir models/Media.js) — masquer/révéler une case ou
+// une zone se ramène donc à ajouter/retirer des clés "col,row" d'un Set, jamais à énumérer tout
+// ce qui doit rester masqué.
+function toFogState(media) {
+  return { enabled: media.fog.enabled, gridColumns: media.fog.gridColumns, revealedCells: media.fog.revealedCells };
+}
+
+async function getFog(roleplayId, mediaId) {
+  const media = await Media.findOne({ _id: mediaId, roleplay: roleplayId, kind: 'map' }).select('fog').catch(() => null);
+  return media ? toFogState(media) : null;
+}
+
+async function setFogEnabled(roleplayId, ownerId, mediaId, enabled, gridColumns) {
+  const doc = await getOwnedAdventure(roleplayId, ownerId);
+  if (!doc) return null;
+  const media = await Media.findOne({ _id: mediaId, roleplay: roleplayId, kind: 'map' }).catch(() => null);
+  if (!media) return null;
+  media.fog.enabled = !!enabled;
+  // La résolution du brouillard (nombre de colonnes) n'est (re)figée sur la grille tactique en
+  // cours que tant qu'aucune case n'a encore été révélée — sinon activer/désactiver le brouillard
+  // par erreur changerait la résolution sous des cases déjà révélées et les désaligner (même bug
+  // que le redimensionnement de la grille tactique, voir setGridSize).
+  if (gridColumns && media.fog.revealedCells.length === 0) {
+    media.fog.gridColumns = Math.min(60, Math.max(5, parseInt(gridColumns) || 20));
+  }
+  media.markModified('fog');
+  await media.save();
+  return toFogState(media);
+}
+
+async function setFogCells(roleplayId, ownerId, mediaId, cells, revealed) {
+  const doc = await getOwnedAdventure(roleplayId, ownerId);
+  if (!doc) return null;
+  const media = await Media.findOne({ _id: mediaId, roleplay: roleplayId, kind: 'map' }).catch(() => null);
+  if (!media) return null;
+  const set = new Set(media.fog.revealedCells);
+  for (const cell of (cells || []).slice(0, 5000)) {
+    const col = parseInt(cell?.col), row = parseInt(cell?.row);
+    if (!Number.isInteger(col) || !Number.isInteger(row) || col < 0 || row < 0) continue;
+    const key = `${col},${row}`;
+    if (revealed) set.add(key); else set.delete(key);
+  }
+  media.fog.revealedCells = [...set];
+  media.markModified('fog');
+  await media.save();
+  return toFogState(media);
+}
+
+// Remplace intégralement la résolution ET les cases révélées — utilisé quand le MJ redimensionne
+// la grille tactique : le client a déjà ré-échantillonné les cases révélées dans la NOUVELLE
+// résolution (il est seul à connaître le ratio naturel de l'image), on se contente ici de
+// persister ce nouvel état tel quel plutôt que de le fusionner avec l'ancien.
+async function replaceFogCells(roleplayId, ownerId, mediaId, gridColumns, cells) {
+  const doc = await getOwnedAdventure(roleplayId, ownerId);
+  if (!doc) return null;
+  const media = await Media.findOne({ _id: mediaId, roleplay: roleplayId, kind: 'map' }).catch(() => null);
+  if (!media) return null;
+  const set = new Set();
+  for (const cell of (cells || []).slice(0, 5000)) {
+    const col = parseInt(cell?.col), row = parseInt(cell?.row);
+    if (Number.isInteger(col) && Number.isInteger(row) && col >= 0 && row >= 0) set.add(`${col},${row}`);
+  }
+  media.fog.gridColumns = Math.min(60, Math.max(5, parseInt(gridColumns) || 20));
+  media.fog.revealedCells = [...set];
+  media.markModified('fog');
+  await media.save();
+  return toFogState(media);
+}
+
+async function resetFog(roleplayId, ownerId, mediaId) {
+  const doc = await getOwnedAdventure(roleplayId, ownerId);
+  if (!doc) return null;
+  const media = await Media.findOne({ _id: mediaId, roleplay: roleplayId, kind: 'map' }).catch(() => null);
+  if (!media) return null;
+  media.fog.revealedCells = [];
+  media.markModified('fog');
+  await media.save();
+  return toFogState(media);
+}
+
+// Révélation automatique par proximité (le joueur "découvre" en approchant son personnage) — un
+// rayon circulaire de cases autour de (col,row) est ajouté aux cases révélées. Retourne null si le
+// brouillard n'est pas actif sur cette carte ou si rien de nouveau n'a été révélé (évite de
+// rediffuser un état identique à chaque petit mouvement).
+async function autoRevealFog(roleplayId, mediaId, col, row, radius) {
+  const media = await Media.findOne({ _id: mediaId, roleplay: roleplayId, kind: 'map' }).catch(() => null);
+  if (!media || !media.fog.enabled) return null;
+  const set = new Set(media.fog.revealedCells);
+  let changed = false;
+  const r2 = radius * radius + 0.5;
+  for (let dc = -radius; dc <= radius; dc++) {
+    for (let dr = -radius; dr <= radius; dr++) {
+      if (dc * dc + dr * dr > r2) continue;
+      const c = col + dc, r = row + dr;
+      if (c < 0 || r < 0) continue;
+      const key = `${c},${r}`;
+      if (!set.has(key)) { set.add(key); changed = true; }
+    }
+  }
+  if (!changed) return null;
+  media.fog.revealedCells = [...set];
+  media.markModified('fog');
+  await media.save();
+  return toFogState(media);
+}
+
 // Nombre de colonnes de la grille tactique (carrée) — le MJ en règle la taille via un curseur,
 // les tokens sont ensuite toujours affichés à la taille d'une case (calculée côté client).
 async function setGridSize(roleplayId, ownerId, gridSize) {
@@ -546,5 +653,6 @@ module.exports = {
   appendPrivateMessage,
   createCharacterToken, createNpcToken, listPartyMembers, listNpcRoster, getMapTokenPositions, setTokenPosition,
   setTokenRotation, removeTokenPosition, getNpcById, setGridSize,
-  syncStatDefinitions
+  syncStatDefinitions, sanitizeTokenColor,
+  getFog, setFogEnabled, setFogCells, replaceFogCells, resetFog, autoRevealFog
 };
