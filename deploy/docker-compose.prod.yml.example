@@ -1,0 +1,23 @@
+# ============================================
+# Exemple docker-compose.prod.yml pour RoleMaster
+# ============================================
+# À copier sur le serveur dans /opt/vgames-suite/docker-compose.prod.yml
+# (c'est l'emplacement et le nom de fichier déjà attendus par
+# .github/workflows/deploy.yml). Le pipeline se charge ensuite de faire
+# `docker compose -f docker-compose.prod.yml pull rolemaster` puis
+# `up -d rolemaster` à chaque déploiement.
+#
+# Le volume sur `uploads` est indispensable : sans lui, chaque nouveau
+# déploiement (nouvelle image) recrée le conteneur et efface les cartes/
+# tokens/musiques uploadés, puisque le Dockerfile ne déclare pas ce dossier
+# comme volume persistant par défaut.
+
+services:
+  rolemaster:
+    image: ghcr.io/imiroi/rolemaster:latest
+    restart: unless-stopped
+    env_file: ./rolemaster.env
+    ports:
+      - "3003:3003"
+    volumes:
+      - ./rolemaster-uploads:/app/uploads
