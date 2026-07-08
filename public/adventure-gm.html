@@ -75,7 +75,7 @@
       padding: 8px;
       text-align: center;
     }
-    .player-chip-icon { font-size: 1.4rem; position: relative; display: inline-block; }
+    .player-chip-icon { width: 40px; height: 40px; position: relative; display: inline-block; border-radius: 50%; background: var(--surface); overflow: hidden; }
     .player-chip-name { font-weight: 700; font-size: 0.78rem; margin: 2px 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .player-chip-actions { display: flex; gap: 6px; justify-content: center; }
     .chapter-media-row {
@@ -101,6 +101,7 @@
     </div>
     <div style="display:flex;align-items:center;gap:10px;">
       <span class="badge initiative-badge" id="initiative-badge" style="display:none;"></span>
+      <button class="btn btn-secondary btn-sm" id="btn-map-visible" style="display:none;" onclick="toggleMapVisible()">🙈 Masquée aux joueurs</button>
       <span class="badge seance-badge closed" id="seance-badge">Séance fermée</span>
       <button class="btn btn-gold btn-sm" id="btn-open-seance" onclick="toggleSeance()">▶ Ouvrir la séance</button>
       <a href="/" class="btn btn-ghost btn-sm">← Retour</a>
@@ -271,7 +272,7 @@
     </div>
   </div>
 
-  <!-- NPC detail modal (read-only fiche + jets de compétences) -->
+  <!-- NPC detail modal (fiche + jets de compétences, statistiques modifiables en direct) -->
   <div class="modal-overlay" id="npc-detail-modal">
     <div class="modal">
       <div class="modal-header">
@@ -289,6 +290,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-ghost" onclick="closeNpcDetailModal()">Fermer</button>
+        <button class="btn btn-primary" onclick="saveNpcDetailStats()">Enregistrer les statistiques</button>
       </div>
     </div>
   </div>
@@ -327,7 +329,20 @@
       showToast(`🎲 ${result.characterName} — ${result.skillName} : ${result.percentile} / d${result.diceSides}=${result.skillRoll}`, 'info');
     });
 
+    socket.on('adv:stat:result', (result) => {
+      showToast(`🎲 ${result.characterName} — ${result.statLabel} (${result.statValue}) : ${result.percentile}`, 'info');
+    });
+
     socket.on('adv:journal:entry', (entry) => appendJournalEntry(entry));
+
+    socket.on('adv:entity:ko', ({ characterId, kind, ko }) => {
+      if (!gmState) return;
+      const pool = kind === 'npc' ? (gmState.npcs || []) : (gmState.characters || []);
+      const entity = pool.find(x => x.id === characterId);
+      if (entity) entity.ko = ko;
+      renderTokens(currentTokenPositions);
+      renderTokenBadges();
+    });
 
     socket.on('adv:initiative:state', (initiative) => {
       if (!gmState) return;
@@ -337,9 +352,9 @@
       renderTokens(currentTokenPositions);
     });
 
-    socket.on('adv:fog:state', ({ mediaId, enabled, gridColumns: fogCols, revealedCells }) => {
+    socket.on('adv:fog:state', ({ mediaId, enabled, revealedCells }) => {
       if (!gmState || mediaId !== currentMediaId) return;
-      gmState.fog = { enabled, gridColumns: fogCols, revealedCells };
+      gmState.fog = { enabled, revealedCells };
       const checkbox = document.getElementById('fog-enabled-checkbox');
       if (checkbox) checkbox.checked = enabled;
       renderFogOverlay();
@@ -434,52 +449,50 @@
       const rect = content.getBoundingClientRect();
       cellPx = (currentMediaId && rect.width > 0) ? rect.width / gridColumns : 48;
       content.style.setProperty('--cell-size', `${cellPx}px`);
+      // La résolution du brouillard est propre à chaque carte : en changer (via le chapitre/la
+      // médiathèque) peut la désynchroniser de la grille tactique en vigueur — on la resynchronise
+      // ici, une fois l'image chargée (nécessaire pour connaître son ratio naturel).
       renderFogOverlay();
     }
 
-    // ─── Brouillard de guerre : dimensions de grille indépendantes du conteneur ────
-    // Le nombre de colonnes vient de fog.gridColumns (figé côté serveur, voir setFogEnabled) et le
-    // nombre de lignes est dérivé du ratio NATUREL de l'image (naturalWidth/naturalHeight), qui est
-    // le même pour tout le monde — contrairement à la taille du conteneur à l'écran (dépend de la
-    // fenêtre/zoom/barre latérale de chacun). C'est ce qui garantit que le MJ et les joueurs voient
-    // le brouillard exactement aux mêmes endroits, quelle que soit la forme de leur fenêtre.
-    function fogGridDims() {
-      const cols = gmState?.fog?.gridColumns || gridColumns || 20;
-      const img = document.getElementById('gm-stage-image');
-      if (!img || !img.naturalWidth || !img.naturalHeight) return { cols, rows: cols };
-      return { cols, rows: Math.max(1, Math.round(cols * img.naturalHeight / img.naturalWidth)) };
-    }
+    // ─── Brouillard de guerre : grille FIXE, propre au brouillard, indépendante de la grille
+    // tactique des tokens (qui reste réglable par le MJ sans jamais affecter le brouillard). Les
+    // cases sont des CARRÉS calés sur la zone réellement occupée par l'image dans le conteneur
+    // (object-fit:contain peut laisser des bandes vides si le conteneur n'a pas le même ratio que
+    // l'image — on calcule donc le rectangle réel de l'image, identique pour tout le monde puisque
+    // basé sur son ratio NATUREL, contrairement à la taille du conteneur à l'écran qui dépend de la
+    // fenêtre/zoom/barre latérale de chacun).
+    const FOG_GRID_COLUMNS = 30;
 
-    // Convertit les cases révélées d'une ANCIENNE résolution vers une NOUVELLE (même image, donc
-    // même ratio naturel) — on échantillonne le centre de chaque nouvelle case dans l'ancienne
-    // grille. Nécessaire pour que le brouillard continue de masquer des cases ENTIÈRES à la taille
-    // courante quelle que soit la valeur du curseur, sans perdre ce qui a déjà été découvert.
-    function resampleFogCells(oldFog, newCols) {
+    function getFogGeometry() {
+      const content = document.getElementById('gm-zoom-content');
+      const rect = content.getBoundingClientRect();
       const img = document.getElementById('gm-stage-image');
-      const naturalRatio = (img && img.naturalWidth && img.naturalHeight) ? img.naturalHeight / img.naturalWidth : 1;
-      const oldCols = oldFog.gridColumns || newCols;
-      const oldRows = Math.max(1, Math.round(oldCols * naturalRatio));
-      const newRows = Math.max(1, Math.round(newCols * naturalRatio));
-      const revealed = new Set(oldFog.revealedCells);
-      const result = [];
-      for (let r = 0; r < newRows; r++) {
-        for (let c = 0; c < newCols; c++) {
-          const oldCol = Math.floor(((c + 0.5) / newCols) * oldCols);
-          const oldRow = Math.floor(((r + 0.5) / newRows) * oldRows);
-          if (revealed.has(`${oldCol},${oldRow}`)) result.push({ col: c, row: r });
-        }
+      if (!rect.width || !rect.height || !img || !img.naturalWidth || !img.naturalHeight) {
+        return { cellPx: 0, offsetX: 0, offsetY: 0, cols: FOG_GRID_COLUMNS, rows: FOG_GRID_COLUMNS };
       }
-      return result;
+      const containerRatio = rect.width / rect.height;
+      const imgRatio = img.naturalWidth / img.naturalHeight;
+      let imgW, imgH, offsetX, offsetY;
+      if (containerRatio > imgRatio) {
+        imgH = rect.height;
+        imgW = imgH * imgRatio;
+        offsetX = (rect.width - imgW) / 2;
+        offsetY = 0;
+      } else {
+        imgW = rect.width;
+        imgH = imgW / imgRatio;
+        offsetX = 0;
+        offsetY = (rect.height - imgH) / 2;
+      }
+      const cellPx = imgW / FOG_GRID_COLUMNS;
+      return { cellPx, offsetX, offsetY, cols: FOG_GRID_COLUMNS, rows: Math.max(1, Math.round(imgH / cellPx)) };
     }
 
     function onGridSizeInput(value) {
       gridColumns = Math.min(60, Math.max(5, parseInt(value) || 20));
       recomputeGrid();
       socket.emit('adv:gm:setGridSize', { roleplayId, gridSize: gridColumns });
-      if (gmState?.fog && gmState.fog.revealedCells.length) {
-        const cells = resampleFogCells(gmState.fog, gridColumns);
-        socket.emit('adv:gm:fog:replaceCells', { roleplayId, gridColumns, cells });
-      }
     }
 
     // ─── Zoom local (uniquement côté de ce spectateur, n'affecte ni les autres ni la position
@@ -572,10 +585,11 @@
     function cellFromEvent(e) {
       const content = document.getElementById('gm-zoom-content');
       const rect = content.getBoundingClientRect();
-      const { cols, rows } = fogGridDims();
+      const geo = getFogGeometry();
+      if (!geo.cellPx) return { col: -1, row: -1 };
       return {
-        col: Math.floor(((e.clientX - rect.left) / rect.width) * cols),
-        row: Math.floor(((e.clientY - rect.top) / rect.height) * rows)
+        col: Math.floor((e.clientX - rect.left - geo.offsetX) / geo.cellPx),
+        row: Math.floor((e.clientY - rect.top - geo.offsetY) / geo.cellPx)
       };
     }
 
@@ -585,7 +599,7 @@
       const key = `${col},${row}`;
       if (fogStrokeCells.has(key)) return;
       fogStrokeCells.add(key);
-      if (!gmState.fog) gmState.fog = { enabled: true, gridColumns, revealedCells: [] };
+      if (!gmState.fog) gmState.fog = { enabled: true, revealedCells: [] };
       const set = new Set(gmState.fog.revealedCells);
       if (fogPaintMode === 'reveal') set.add(key); else set.delete(key);
       gmState.fog.revealedCells = [...set];
@@ -672,6 +686,7 @@
       updateGridOverlay();
       recomputeGrid();
       renderTokens(gmState.tokenPositions || []);
+      renderMapVisibleButton();
 
       const audio = document.getElementById('gm-stage-audio');
       if (gmState.nowPlaying) {
@@ -719,11 +734,12 @@
         if (!entity) return '';
         const visual = entity.tokenMediaId
           ? `<img src="/api/adventures/${roleplayId}/media/${entity.tokenMediaId}/file">`
-          : (entity.icon || '❓');
+          : '';
         const selected = selectedToken && selectedToken.characterId === p.characterId ? ' selected' : '';
         const onTurn = activeTurn && activeTurn.entityId === p.characterId && activeTurn.kind === (p.kind || 'character') ? ' initiative-turn' : '';
+        const ko = entity.ko ? ' token-ko' : '';
         return `
-          <div class="token${selected}${onTurn}" data-character-id="${p.characterId}" data-kind="${p.kind || 'character'}" style="left:${p.x}%;top:${p.y}%;transform:translate(-50%,-50%) rotate(${p.rotation || 0}deg);--token-color:${entity.tokenColor || '#c9a227'};">
+          <div class="token${selected}${onTurn}${ko}" data-character-id="${p.characterId}" data-kind="${p.kind || 'character'}" style="left:${p.x}%;top:${p.y}%;transform:translate(-50%,-50%) rotate(${p.rotation || 0}deg);--token-color:${entity.tokenColor || '#c9a227'};">
             ${visual}
             <span class="token-label">${esc(entity.name)}</span>
           </div>
@@ -857,11 +873,19 @@
         <div class="token-badges-name">${esc(entity.name)}</div>
         <div class="token-badges-hint">↑↓←→ déplacer · Ctrl+↑↓←→ pivoter · Suppr retirer de la carte</div>
         <div class="token-badges-list">
+          <button type="button" class="token-badge-chip ko-toggle${entity.ko ? ' active' : ''}" title="Basculer KO/mort" onclick="toggleEntityKo()">💀 ${entity.ko ? 'KO/Mort' : 'Marquer KO'}</button>
           ${skills.length
             ? skills.map(s => `<button type="button" class="token-badge-chip${s.locked ? ' locked' : ''}" title="${esc(s.description || '')} — 1d100 + 1d${s.diceSides || 6}" onclick="rollBadgeSkill('${s.id}')">${s.locked ? '🔒' : '🎲'} ${esc(s.name)}</button>`).join('')
             : '<span class="text-muted text-sm">Aucune compétence.</span>'}
         </div>
       `;
+    }
+
+    function toggleEntityKo() {
+      if (!selectedToken) return;
+      const entity = findTokenEntity(selectedToken.characterId, selectedToken.kind);
+      if (!entity) return;
+      socket.emit('adv:gm:setKo', { roleplayId, characterId: selectedToken.characterId, kind: selectedToken.kind, ko: !entity.ko });
     }
 
     function rollBadgeSkill(skillId) {
@@ -1009,7 +1033,7 @@
       const placedIds = new Set((gmState.tokenPositions || []).map(p => p.characterId));
       document.getElementById('chapter-npcs-list').innerHTML = npcs.length ? npcs.map(n => `
         <div class="character-item" onclick="openNpcDetailModal('${n.id}')" style="cursor:pointer;">
-          <div class="character-item-icon">${n.tokenMediaId ? `<img src="/api/adventures/${roleplayId}/media/${n.tokenMediaId}/file" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">` : (n.icon || '❓')}</div>
+          <div class="character-item-icon">${n.tokenMediaId ? `<img src="/api/adventures/${roleplayId}/media/${n.tokenMediaId}/file" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">` : ''}</div>
           <div class="character-item-info">
             <div class="character-item-name">${esc(n.name)}</div>
             <div class="character-item-title">${esc(n.role || n.disposition || '')}</div>
@@ -1039,7 +1063,10 @@
       document.getElementById('npc-detail-stats').innerHTML = statDefs.length ? statDefs.map(def => `
         <div class="stat-input-group">
           <label class="stat-label">${esc(def.label)}</label>
-          <input type="number" class="stat-input" value="${n.stats?.[def.key] ?? 0}" min="0" disabled>
+          <div style="display:flex;gap:4px;align-items:center;">
+            <input type="number" class="stat-input" data-stat="${def.key}" value="${n.stats?.[def.key] ?? 0}" min="0" max="99">
+            <button type="button" class="btn btn-gold btn-sm" onclick="rollNpcDetailStat('${def.key}')" title="Lancer 1d100">🎲</button>
+          </div>
         </div>
       `).join('') : '<p class="text-muted text-sm">Aucune statistique définie pour cette aventure.</p>';
       const skills = [
@@ -1068,6 +1095,21 @@
     function rollNpcDetailSkill(skillId) {
       if (!viewingNpcId) return;
       socket.emit('adv:skill:roll', { roleplayId, characterId: viewingNpcId, kind: 'npc', skillId });
+    }
+
+    function rollNpcDetailStat(statKey) {
+      if (!viewingNpcId) return;
+      socket.emit('adv:stat:roll', { roleplayId, characterId: viewingNpcId, kind: 'npc', statKey });
+    }
+
+    function saveNpcDetailStats() {
+      if (!viewingNpcId) return;
+      const stats = {};
+      document.querySelectorAll('#npc-detail-stats [data-stat]').forEach(input => {
+        stats[input.dataset.stat] = parseInt(input.value) || 0;
+      });
+      socket.emit('adv:gm:updateNpcStats', { roleplayId, npcId: viewingNpcId, stats });
+      showToast('Statistiques du PNJ mises à jour', 'success');
     }
 
     function showMedia(mediaId) { socket.emit('adv:gm:showMedia', { roleplayId, mediaId }); }
@@ -1119,7 +1161,7 @@
       list.innerHTML = characters.map(c => `
         <div class="player-chip" onclick="openCharEditModal('${c.id}')" style="cursor:pointer;">
           <div class="player-chip-icon">
-            <span>${c.icon || '❓'}</span>
+            ${c.tokenMediaId ? `<img src="/api/adventures/${roleplayId}/media/${c.tokenMediaId}/file" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">` : ''}
             <span class="connected-dot ${connectedIds.has(c.id) ? 'online' : ''}" style="position:absolute;bottom:0;right:0;"></span>
           </div>
           <div class="player-chip-name" title="${esc(c.name)}">${esc(c.name)}</div>
@@ -1137,11 +1179,11 @@
       const select = document.getElementById('initiative-add-select');
       if (!select || !gmState) return;
       const already = new Set((gmState.initiative?.entries || []).map(e => e.entityId));
-      const chars = (gmState.characters || []).filter(c => !already.has(c.id)).map(c => ({ id: c.id, kind: 'character', name: c.name, icon: c.icon, tokenMediaId: c.tokenMediaId, tokenColor: c.tokenColor }));
-      const npcs = (gmState.npcs || []).filter(n => !already.has(n.id)).map(n => ({ id: n.id, kind: 'npc', name: n.name, icon: n.icon, tokenMediaId: n.tokenMediaId, tokenColor: n.tokenColor }));
+      const chars = (gmState.characters || []).filter(c => !already.has(c.id)).map(c => ({ id: c.id, kind: 'character', name: c.name, tokenMediaId: c.tokenMediaId, tokenColor: c.tokenColor }));
+      const npcs = (gmState.npcs || []).filter(n => !already.has(n.id)).map(n => ({ id: n.id, kind: 'npc', name: n.name, tokenMediaId: n.tokenMediaId, tokenColor: n.tokenColor }));
       const options = [...chars, ...npcs];
       select.innerHTML = options.length
-        ? options.map(o => `<option value="${o.kind}:${o.id}">${o.kind === 'npc' ? '🧝' : '🧑'} ${esc(o.name)}</option>`).join('')
+        ? options.map(o => `<option value="${o.kind}:${o.id}">${o.kind === 'npc' ? '[PNJ]' : '[Perso]'} ${esc(o.name)}</option>`).join('')
         : '<option value="">Tous les participants sont déjà dans la liste</option>';
     }
 
@@ -1153,7 +1195,7 @@
       const entity = pool.find(x => x.id === id);
       if (!entity) return;
       socket.emit('adv:gm:initiative:add', {
-        roleplayId, kind, entityId: entity.id, name: entity.name, icon: entity.icon,
+        roleplayId, kind, entityId: entity.id, name: entity.name,
         tokenMediaId: entity.tokenMediaId, tokenColor: entity.tokenColor
       });
     }
@@ -1166,7 +1208,7 @@
       if (list) {
         list.innerHTML = initiative.entries.map(e => `
           <div class="character-item${e.id === initiative.currentTurnId ? ' initiative-active' : ''}">
-            <div class="character-item-icon">${e.tokenMediaId ? `<img src="/api/adventures/${roleplayId}/media/${e.tokenMediaId}/file" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">` : (e.icon || '❓')}</div>
+            <div class="character-item-icon">${e.tokenMediaId ? `<img src="/api/adventures/${roleplayId}/media/${e.tokenMediaId}/file" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">` : ''}</div>
             <div class="character-item-info">
               <div class="character-item-name">${esc(e.name)}</div>
             </div>
@@ -1205,21 +1247,42 @@
       if (!layer) return;
       const fog = gmState?.fog;
       if (!fog || !fog.enabled || !currentMediaId) { layer.innerHTML = ''; return; }
-      const { cols, rows } = fogGridDims();
-      const cellW = 100 / cols, cellH = 100 / rows;
+      const geo = getFogGeometry();
+      if (!geo.cellPx) { layer.innerHTML = ''; return; }
       const revealed = new Set(fog.revealedCells);
       let html = '';
-      for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) {
+      for (let r = 0; r < geo.rows; r++) {
+        for (let c = 0; c < geo.cols; c++) {
           if (revealed.has(`${c},${r}`)) continue;
-          html += `<div class="fog-cell gm-preview" style="left:${c * cellW}%;top:${r * cellH}%;width:${cellW}%;height:${cellH}%;"></div>`;
+          html += `<div class="fog-cell gm-preview" style="left:${geo.offsetX + c * geo.cellPx}px;top:${geo.offsetY + r * geo.cellPx}px;width:${geo.cellPx}px;height:${geo.cellPx}px;"></div>`;
         }
       }
       layer.innerHTML = html;
     }
 
     function toggleFogEnabled(enabled) {
-      socket.emit('adv:gm:fog:setEnabled', { roleplayId, enabled, gridColumns });
+      socket.emit('adv:gm:fog:setEnabled', { roleplayId, enabled });
+    }
+
+    // ─── Visibilité de la carte pour les joueurs (temps de préparation) ────
+    function renderMapVisibleButton() {
+      const btn = document.getElementById('btn-map-visible');
+      if (!btn) return;
+      if (!gmState?.nowShowing) { btn.style.display = 'none'; return; }
+      btn.style.display = '';
+      if (gmState.mapVisible) {
+        btn.textContent = '👁 Visible des joueurs';
+        btn.classList.add('btn-gold');
+        btn.classList.remove('btn-secondary');
+      } else {
+        btn.textContent = '🙈 Masquée aux joueurs';
+        btn.classList.remove('btn-gold');
+        btn.classList.add('btn-secondary');
+      }
+    }
+
+    function toggleMapVisible() {
+      socket.emit('adv:gm:setMapVisible', { roleplayId, visible: !gmState.mapVisible });
     }
 
     function toggleFogPaint(mode) {
@@ -1231,9 +1294,9 @@
 
     function revealAllFog() {
       if (!currentMediaId) return;
-      const { cols, rows } = fogGridDims();
+      const geo = getFogGeometry();
       const cells = [];
-      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) cells.push({ col: c, row: r });
+      for (let r = 0; r < geo.rows; r++) for (let c = 0; c < geo.cols; c++) cells.push({ col: c, row: r });
       socket.emit('adv:gm:fog:setCells', { roleplayId, cells, revealed: true });
     }
 
@@ -1250,7 +1313,10 @@
       document.getElementById('char-edit-stats').innerHTML = statDefs.length ? statDefs.map(def => `
         <div class="stat-input-group">
           <label class="stat-label">${esc(def.label)}</label>
-          <input type="number" class="stat-input" data-stat="${def.key}" value="${c.stats[def.key] ?? 0}" min="0">
+          <div style="display:flex;gap:4px;align-items:center;">
+            <input type="number" class="stat-input" data-stat="${def.key}" value="${c.stats[def.key] ?? 0}" min="0">
+            <button type="button" class="btn btn-gold btn-sm" onclick="rollCharEditStat('${def.key}')" title="Lancer 1d100">🎲</button>
+          </div>
         </div>
       `).join('') : '<p class="text-muted text-sm">Aucune statistique définie pour cette aventure.</p>';
       document.getElementById('char-edit-inventory').value = (c.inventory || []).join('\n');
@@ -1297,6 +1363,11 @@
 
     function rollCharEditSkill(skillId) {
       socket.emit('adv:skill:roll', { roleplayId, characterId: editingCharacterId, skillId });
+    }
+
+    function rollCharEditStat(statKey) {
+      if (!editingCharacterId) return;
+      socket.emit('adv:stat:roll', { roleplayId, characterId: editingCharacterId, statKey });
     }
 
     function collectCharEditSkills() {
@@ -1353,6 +1424,7 @@
     function formatJournalEntry(e) {
       if (e.kind === 'chat') return (e.mp ? '<strong class="text-muted">MP</strong> - ' : '') + esc(e.text);
       if (e.kind === 'skill') return `🎲 <strong>${esc(e.skillName)}</strong> : 1d100=${e.percentile} · 1d${e.diceSides}=<strong>${e.skillRoll}</strong>${e.visibility === 'gm' ? ' <span class="text-muted text-sm">(caché des joueurs)</span>' : ''}`;
+      if (e.kind === 'stat') return `🎲 <strong>${esc(e.statLabel)}</strong> (${e.statValue}) : 1d100=<strong>${e.percentile}</strong> <span class="text-muted text-sm">${e.visibility === 'gm' ? '(caché des joueurs)' : '(privé)'}</span>`;
       if (e.kind === 'dice') return `🎲 ${e.count}d${e.sides} → ${e.rolls.join(', ')} = <strong>${e.total}</strong>`;
       return '';
     }
@@ -1360,7 +1432,7 @@
     function journalEntryRowHtml(e) {
       const avatar = e.authorTokenMediaId
         ? `<img src="/api/adventures/${roleplayId}/media/${e.authorTokenMediaId}/file">`
-        : (e.authorIcon || '❓');
+        : '';
       return `
         <div class="journal-entry-row">
           <div class="journal-entry-avatar">${avatar}</div>

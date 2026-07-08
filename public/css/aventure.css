@@ -191,6 +191,7 @@
 }
 .token-badge-chip:hover { border-color: var(--accent); }
 .token-badge-chip.locked { opacity: 0.75; }
+.token-badge-chip.ko-toggle.active { background: #7a1f1f; border-color: #e53935; }
 
 /* ─── Onglets compacts du panneau latéral (MJ et joueur) ──── */
 .gm-tabs { margin-bottom: 14px; gap: 0; flex-wrap: wrap; }
@@ -300,6 +301,23 @@
   0%, 100% { outline-color: var(--gold); }
   50% { outline-color: #fff3c4; }
 }
+
+/* ─── Marqueur KO/mort — croix rouge par-dessus le token, gérée par le MJ ───────── */
+.token.token-ko::after {
+  content: '✕';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(var(--cell-size, 48px) * 0.65);
+  font-weight: 900;
+  line-height: 1;
+  color: #e53935;
+  text-shadow: 0 0 3px #000, 0 0 3px #000, 0 0 3px #000;
+  pointer-events: none;
+}
+.token.token-ko { filter: grayscale(0.6); }
 
 /* ─── Brouillard de guerre ─────────────────────────────── */
 /* Placé au-dessus de la carte/de la grille mais sous les tokens : les zones non découvertes

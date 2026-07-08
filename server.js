@@ -216,6 +216,7 @@ async function buildAdventureGmState(roleplayId) {
     isLive: !!seance,
     connectedPlayers: seance ? [...seance.connectedPlayers.values()] : [],
     nowShowing: seance?.nowShowing || null,
+    mapVisible: seance?.mapVisible || false,
     nowPlaying: seance?.nowPlaying || null,
     tokenPositions,
     fog,
@@ -252,7 +253,7 @@ async function sendPrivateJournalMessage(roleplayId, characterId, text) {
   if (seance) {
     const entry = adventureEngine.addJournalEntry(seance, {
       kind: 'chat', visibility: 'private', counterpartCharacterId: characterId, mp: true, text,
-      authorName: character.name, authorIcon: character.icon || '❓', authorTokenMediaId: character.tokenMediaId || null
+      authorName: character.name, authorIcon: character.icon || '', authorTokenMediaId: character.tokenMediaId || null
     });
     io.to(`adv-gm:${roleplayId}`).emit('adv:journal:entry', entry);
     for (const [socketId, info] of seance.connectedPlayers) {
@@ -627,18 +628,38 @@ io.on('connection', (socket) => {
     io.to(`adv-players:${roleplayId}`).emit('adv:player:chapterChanged', { chapterId, title: chapter?.title });
   });
 
+  // Changer de carte repart TOUJOURS en préparation (pas visible des joueurs) : le MJ a ainsi le
+  // temps de placer tokens/sprites et de peindre le brouillard avant de révéler la scène via
+  // adv:gm:setMapVisible. Les joueurs qui regardaient la carte précédente la voient se masquer.
   socket.on('adv:gm:showMedia', async ({ roleplayId, mediaId }) => {
     if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
     const seance = adventureEngine.getSeance(roleplayId);
     if (!seance) return;
     seance.nowShowing = { mediaId };
-    const tokenPositions = await adv.getMapTokenPositions(roleplayId, mediaId);
-    const partyMembers = await adv.listPartyMembers(roleplayId);
-    const npcRoster = await adv.listNpcRoster(roleplayId);
-    const fog = await adv.getFog(roleplayId, mediaId);
-    io.to(`adv-players:${roleplayId}`).emit('adv:player:nowShowing', {
-      mediaId, url: `/api/adventures/${roleplayId}/media/${mediaId}/file`, tokenPositions, partyMembers, npcRoster, fog
-    });
+    seance.mapVisible = false;
+    io.to(`adv-players:${roleplayId}`).emit('adv:player:mapHidden');
+    io.to(`adv-gm:${roleplayId}`).emit('adv:gm:state', await buildAdventureGmState(roleplayId));
+  });
+
+  // Bascule la visibilité de la carte actuellement affichée pour les joueurs — indépendante du
+  // brouillard (qui reste appliqué normalement une fois la carte révélée).
+  socket.on('adv:gm:setMapVisible', async ({ roleplayId, visible }) => {
+    if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
+    const seance = adventureEngine.getSeance(roleplayId);
+    if (!seance || !seance.nowShowing) return;
+    seance.mapVisible = !!visible;
+    if (seance.mapVisible) {
+      const mediaId = seance.nowShowing.mediaId;
+      const tokenPositions = await adv.getMapTokenPositions(roleplayId, mediaId);
+      const partyMembers = await adv.listPartyMembers(roleplayId);
+      const npcRoster = await adv.listNpcRoster(roleplayId);
+      const fog = await adv.getFog(roleplayId, mediaId);
+      io.to(`adv-players:${roleplayId}`).emit('adv:player:nowShowing', {
+        mediaId, url: `/api/adventures/${roleplayId}/media/${mediaId}/file`, tokenPositions, partyMembers, npcRoster, fog
+      });
+    } else {
+      io.to(`adv-players:${roleplayId}`).emit('adv:player:mapHidden');
+    }
     io.to(`adv-gm:${roleplayId}`).emit('adv:gm:state', await buildAdventureGmState(roleplayId));
   });
 
@@ -670,6 +691,15 @@ io.on('connection', (socket) => {
     socket.emit('adv:gm:state', await buildAdventureGmState(roleplayId));
   });
 
+  // Statistiques d'un PNJ modifiables en pleine séance depuis sa fiche détail (lecture réservée au
+  // MJ — les PNJ n'ont pas de fiche côté joueur, rien à diffuser aux joueurs ici).
+  socket.on('adv:gm:updateNpcStats', async ({ roleplayId, npcId, stats }) => {
+    if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
+    const npc = await adv.updateNpcStatsById(roleplayId, getAdvUserId(), npcId, stats || {});
+    if (!npc) return;
+    socket.emit('adv:gm:state', await buildAdventureGmState(roleplayId));
+  });
+
   socket.on('adv:gm:updateCharacterInventory', async ({ roleplayId, characterId, inventory }) => {
     if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
     const character = await adv.updateCharacterInventoryById(roleplayId, characterId, inventory);
@@ -684,6 +714,23 @@ io.on('connection', (socket) => {
     if (!character) return;
     notifyAdventureCharacterUpdate(roleplayId, character);
     socket.emit('adv:gm:state', await buildAdventureGmState(roleplayId));
+  });
+
+  // Marqueur KO/mort sur un token (croix rouge) — bascule en un clic, réservé au MJ, visible en
+  // direct par tout le monde (comme la couleur du contour du token).
+  socket.on('adv:gm:setKo', async ({ roleplayId, characterId, kind, ko }) => {
+    if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
+    const ownerId = getAdvUserId();
+    const isNpc = kind === 'npc';
+    const entity = isNpc
+      ? await adv.setNpcKo(roleplayId, ownerId, characterId, ko)
+      : await adv.setCharacterKo(roleplayId, ownerId, characterId, ko);
+    if (!entity) return;
+    if (!isNpc) notifyAdventureCharacterUpdate(roleplayId, entity);
+    io.to(`adv-gm:${roleplayId}`).to(`adv-players:${roleplayId}`).emit('adv:entity:ko', {
+      characterId, kind: isNpc ? 'npc' : 'character', ko: !!entity.ko
+    });
+    io.to(`adv-gm:${roleplayId}`).emit('adv:gm:state', await buildAdventureGmState(roleplayId));
   });
 
   socket.on('adv:gm:addJournalEntry', async ({ roleplayId, characterId, text }) => {
@@ -740,7 +787,7 @@ io.on('connection', (socket) => {
       : (() => {
         const info = seance.connectedPlayers.get(socket.id);
         const c = info?.characters.find(ch => ch.id === characterId);
-        return { authorName: c?.name || 'Joueur', authorIcon: c?.icon || '❓', authorTokenMediaId: c?.tokenMediaId || null };
+        return { authorName: c?.name || 'Joueur', authorIcon: c?.icon || '', authorTokenMediaId: c?.tokenMediaId || null };
       })();
 
     const entry = adventureEngine.addJournalEntry(seance, { kind: 'chat', visibility: 'public', text: safeText, ...author });
@@ -770,17 +817,22 @@ io.on('connection', (socket) => {
     const roleplayDoc = await Roleplay.findById(roleplayId);
     const chapter = (roleplayDoc?.chapters || []).find(c => c.id === seance.currentChapterId)
       || (roleplayDoc?.chapters || []).find(c => c.isCurrent);
-    const tokenPositions = seance.nowShowing ? await adv.getMapTokenPositions(roleplayId, seance.nowShowing.mediaId) : [];
+    // Tant que le MJ n'a pas révélé la carte (mapVisible), le joueur ne reçoit ni son image, ni les
+    // positions de tokens, ni l'état du brouillard — le temps que le MJ prépare la scène.
+    const mapVisible = !!seance.mapVisible;
+    const hasMap = mapVisible && seance.nowShowing;
+    const tokenPositions = hasMap ? await adv.getMapTokenPositions(roleplayId, seance.nowShowing.mediaId) : [];
     const partyMembers = await adv.listPartyMembers(roleplayId);
     const npcRoster = await adv.listNpcRoster(roleplayId);
-    const fog = seance.nowShowing ? await adv.getFog(roleplayId, seance.nowShowing.mediaId) : null;
-    const nowShowing = seance.nowShowing
+    const fog = hasMap ? await adv.getFog(roleplayId, seance.nowShowing.mediaId) : null;
+    const nowShowing = hasMap
       ? { mediaId: seance.nowShowing.mediaId, url: `/api/adventures/${roleplayId}/media/${seance.nowShowing.mediaId}/file` }
       : null;
 
     socket.emit('adv:player:state', {
       characters,
       chapterTitle: chapter?.title || null,
+      mapVisible,
       nowShowing,
       nowPlaying: seance.nowPlaying,
       tokenPositions,
@@ -811,7 +863,7 @@ io.on('connection', (socket) => {
       const c = info?.characters.find(ch => ch.id === characterId);
       const entry = adventureEngine.addJournalEntry(seance, {
         kind: 'dice', visibility: 'public',
-        authorName: c?.name || 'Joueur', authorIcon: c?.icon || '❓', authorTokenMediaId: c?.tokenMediaId || null,
+        authorName: c?.name || 'Joueur', authorIcon: c?.icon || '', authorTokenMediaId: c?.tokenMediaId || null,
         count: result.count, sides: result.sides, rolls: result.rolls, total: result.total
       });
       io.to(`adv-gm:${roleplayId}`).to(`adv-players:${roleplayId}`).emit('adv:journal:entry', entry);
@@ -847,7 +899,7 @@ io.on('connection', (socket) => {
       if (seanceNpc) {
         const entry = adventureEngine.addJournalEntry(seanceNpc, {
           kind: 'skill', visibility: isHidden ? 'gm' : 'public',
-          authorName: npc.name, authorIcon: npc.icon || '❓', authorTokenMediaId: npc.tokenMediaId || null,
+          authorName: npc.name, authorIcon: npc.icon || '', authorTokenMediaId: npc.tokenMediaId || null,
           skillName: skill.name, diceSides: skill.diceSides || 6, percentile, skillRoll
         });
         io.to(`adv-gm:${roleplayId}`).emit('adv:journal:entry', entry);
@@ -887,10 +939,77 @@ io.on('connection', (socket) => {
     if (seanceChar) {
       const entry = adventureEngine.addJournalEntry(seanceChar, {
         kind: 'skill', visibility: 'public',
-        authorName: character.name, authorIcon: character.icon || '❓', authorTokenMediaId: character.tokenMediaId || null,
+        authorName: character.name, authorIcon: character.icon || '', authorTokenMediaId: character.tokenMediaId || null,
         skillName: skill.name, diceSides: skill.diceSides || 6, percentile, skillRoll
       });
       io.to(`adv-gm:${roleplayId}`).to(`adv-players:${roleplayId}`).emit('adv:journal:entry', entry);
+    }
+  });
+
+  // ─── Jet de statistique (1d100 simple, avec la valeur de la stat en note) ───
+  // Permet de suivre les jets de stats précises (perception, force...) depuis la fiche en jeu, sans
+  // ouvrir la fiche détail du personnage. Privé : visible du MJ et du joueur concerné uniquement —
+  // jamais diffusé aux autres joueurs (évite le méta-jeu sur un jet caché du groupe).
+  socket.on('adv:stat:roll', async ({ roleplayId, characterId, kind, statKey }) => {
+    const isGm = advRole === 'gm' && advRoleplayId === roleplayId;
+    const isOwner = advRole === 'player' && advRoleplayId === roleplayId && advCharacterIds.has(characterId);
+
+    const roleplayDoc = await Roleplay.findById(roleplayId).select('statDefinitions').catch(() => null);
+    const statDef = roleplayDoc?.statDefinitions.find(d => d.key === statKey);
+    if (!statDef) return;
+
+    // PNJ : réservé au MJ, jamais visible des joueurs (même confidentialité que la fiche PNJ elle-même).
+    if (kind === 'npc') {
+      if (!isGm) return;
+      const npc = await adv.getNpcById(roleplayId, characterId);
+      if (!npc) return;
+
+      const statValue = npc.stats?.[statKey] ?? 0;
+      const percentile = adventureEngine.rollDice(1, 100).rolls[0];
+      const result = { characterId, kind: 'npc', characterName: npc.name, statKey, statLabel: statDef.label, statValue, percentile };
+      socket.emit('adv:stat:result', result);
+
+      const seanceNpc = adventureEngine.getSeance(roleplayId);
+      if (seanceNpc) {
+        const entry = adventureEngine.addJournalEntry(seanceNpc, {
+          kind: 'stat', visibility: 'gm',
+          authorName: npc.name, authorIcon: npc.icon || '', authorTokenMediaId: npc.tokenMediaId || null,
+          statLabel: statDef.label, statValue, percentile
+        });
+        io.to(`adv-gm:${roleplayId}`).emit('adv:journal:entry', entry);
+      }
+      return;
+    }
+
+    if (!isGm && !isOwner) return;
+
+    const character = await adv.getCharacterById(roleplayId, characterId);
+    if (!character) return;
+
+    const statValue = character.stats?.[statKey] ?? 0;
+    const percentile = adventureEngine.rollDice(1, 100).rolls[0];
+    const result = { characterId, kind: 'character', characterName: character.name, statKey, statLabel: statDef.label, statValue, percentile };
+
+    socket.emit('adv:stat:result', result);
+    const seance = adventureEngine.getSeance(roleplayId);
+    if (isOwner) {
+      io.to(`adv-gm:${roleplayId}`).emit('adv:stat:result', result);
+    } else if (seance) {
+      for (const [socketId, info] of seance.connectedPlayers) {
+        if (info.characters?.some(c => c.id === characterId)) { io.to(socketId).emit('adv:stat:result', result); break; }
+      }
+    }
+
+    if (seance) {
+      const entry = adventureEngine.addJournalEntry(seance, {
+        kind: 'stat', visibility: 'private', counterpartCharacterId: characterId,
+        authorName: character.name, authorIcon: character.icon || '', authorTokenMediaId: character.tokenMediaId || null,
+        statLabel: statDef.label, statValue, percentile
+      });
+      io.to(`adv-gm:${roleplayId}`).emit('adv:journal:entry', entry);
+      for (const [socketId, info] of seance.connectedPlayers) {
+        if (info.characters?.some(c => c.id === characterId)) { io.to(socketId).emit('adv:journal:entry', entry); break; }
+      }
     }
   });
 
@@ -903,13 +1022,16 @@ io.on('connection', (socket) => {
     const seance = adventureEngine.getSeance(roleplayId);
     if (!characters.length || !seance) return;
     const roleplayDoc = await Roleplay.findById(roleplayId).select('gridSize');
-    const tokenPositions = seance.nowShowing ? await adv.getMapTokenPositions(roleplayId, seance.nowShowing.mediaId) : [];
+    const mapVisible = !!seance.mapVisible;
+    const hasMap = mapVisible && seance.nowShowing;
+    const tokenPositions = hasMap ? await adv.getMapTokenPositions(roleplayId, seance.nowShowing.mediaId) : [];
     const partyMembers = await adv.listPartyMembers(roleplayId);
     const npcRoster = await adv.listNpcRoster(roleplayId);
-    const fog = seance.nowShowing ? await adv.getFog(roleplayId, seance.nowShowing.mediaId) : null;
+    const fog = hasMap ? await adv.getFog(roleplayId, seance.nowShowing.mediaId) : null;
     socket.emit('adv:player:state', {
       characters,
-      nowShowing: seance.nowShowing,
+      mapVisible,
+      nowShowing: hasMap ? seance.nowShowing : null,
       nowPlaying: seance.nowPlaying,
       tokenPositions,
       fog,
@@ -942,7 +1064,7 @@ io.on('connection', (socket) => {
     adventureEngine.addInitiativeEntry(seance, {
       kind, entityId,
       name: String(name || '?').slice(0, 60),
-      icon: String(icon || '❓').slice(0, 8),
+      icon: String(icon || '').slice(0, 8),
       tokenMediaId: tokenMediaId || null,
       tokenColor: adv.sanitizeTokenColor(tokenColor)
     });
@@ -981,14 +1103,16 @@ io.on('connection', (socket) => {
     io.to(`adv-gm:${roleplayId}`).to(`adv-players:${roleplayId}`).emit('adv:initiative:state', seance.initiative);
   });
 
-  // ─── Brouillard de guerre (carte actuellement affichée) — masque des zones que les joueurs
-  // découvrent en s'approchant ou que le MJ révèle/masque manuellement. Le MJ voit toujours la
-  // carte entière dans son propre panneau ; seul l'affichage côté joueur applique le brouillard.
-  socket.on('adv:gm:fog:setEnabled', async ({ roleplayId, enabled, gridColumns }) => {
+  // ─── Brouillard de guerre (carte actuellement affichée) — grille FIXE, propre au brouillard et
+  // indépendante de la grille tactique des tokens (voir FOG_GRID_COLUMNS côté client). Masque des
+  // zones que les joueurs découvrent en s'approchant ou que le MJ révèle/masque manuellement ; côté
+  // joueur, une case non révélée masque aussi le décor/PNJ/tokens des autres joueurs qui s'y
+  // trouvent (jamais les siens). Le MJ voit toujours la carte et tous les tokens dans son panneau.
+  socket.on('adv:gm:fog:setEnabled', async ({ roleplayId, enabled }) => {
     if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
     const seance = adventureEngine.getSeance(roleplayId);
     if (!seance || !seance.nowShowing) return;
-    const fog = await adv.setFogEnabled(roleplayId, getAdvUserId(), seance.nowShowing.mediaId, enabled, gridColumns);
+    const fog = await adv.setFogEnabled(roleplayId, getAdvUserId(), seance.nowShowing.mediaId, enabled);
     if (!fog) return;
     io.to(`adv-gm:${roleplayId}`).to(`adv-players:${roleplayId}`).emit('adv:fog:state', { mediaId: seance.nowShowing.mediaId, ...fog });
   });
@@ -998,18 +1122,6 @@ io.on('connection', (socket) => {
     const seance = adventureEngine.getSeance(roleplayId);
     if (!seance || !seance.nowShowing) return;
     const fog = await adv.setFogCells(roleplayId, getAdvUserId(), seance.nowShowing.mediaId, cells, !!revealed);
-    if (!fog) return;
-    io.to(`adv-gm:${roleplayId}`).to(`adv-players:${roleplayId}`).emit('adv:fog:state', { mediaId: seance.nowShowing.mediaId, ...fog });
-  });
-
-  // Remplacement complet (résolution + cases révélées) — utilisé quand le MJ redimensionne la
-  // grille tactique : le client a déjà ré-échantillonné les cases révélées vers la nouvelle
-  // résolution avant d'émettre, on remplace donc l'état plutôt que de le fusionner.
-  socket.on('adv:gm:fog:replaceCells', async ({ roleplayId, gridColumns, cells }) => {
-    if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
-    const seance = adventureEngine.getSeance(roleplayId);
-    if (!seance || !seance.nowShowing) return;
-    const fog = await adv.replaceFogCells(roleplayId, getAdvUserId(), seance.nowShowing.mediaId, gridColumns, cells);
     if (!fog) return;
     io.to(`adv-gm:${roleplayId}`).to(`adv-players:${roleplayId}`).emit('adv:fog:state', { mediaId: seance.nowShowing.mediaId, ...fog });
   });
@@ -1038,8 +1150,8 @@ io.on('connection', (socket) => {
     socket.to(`adv-players:${roleplayId}`).to(`adv-gm:${roleplayId}`).emit('adv:token:position', { characterId, kind, x, y, final: false });
   });
 
-  // Rayon (en cases de la résolution du brouillard de la carte, fog.gridColumns) découvert autour
-  // d'un personnage qui se déplace.
+  // Rayon (en cases de la grille FIXE du brouillard, voir FOG_GRID_COLUMNS côté client) découvert
+  // autour d'un personnage qui se déplace.
   const FOG_REVEAL_RADIUS = 2;
 
   socket.on('adv:token:drop', async ({ roleplayId, characterId, kind, x, y, col, row }) => {

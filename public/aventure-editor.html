@@ -266,20 +266,14 @@
         </div>
 
         <div class="tab-panel active" id="tab-npc-identity">
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">Nom *</label>
-              <input type="text" class="form-input" id="npc-name" placeholder="Le Marchand">
-            </div>
-            <div class="form-group">
-              <label class="form-label">Icône (emoji, repli si pas d'image)</label>
-              <input type="text" class="form-input" id="npc-icon" placeholder="🧝" maxlength="4" style="font-size:1.5rem;text-align:center;">
-            </div>
+          <div class="form-group">
+            <label class="form-label">Nom *</label>
+            <input type="text" class="form-input" id="npc-name" placeholder="Le Marchand">
           </div>
           <div class="form-group">
             <label class="form-label">Token (image)</label>
             <div style="display:flex;align-items:center;gap:12px;">
-              <div class="token-upload-preview" id="npc-token-preview" onclick="document.getElementById('npc-token-input').click()" title="Choisir une image" style="--token-color:#c9a227;">➕</div>
+              <div class="token-upload-preview" id="npc-token-preview" onclick="document.getElementById('npc-token-input').click()" title="Choisir une image" style="--token-color:#c9a227;"></div>
               <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('npc-token-input').click()">Choisir une image</button>
               <input type="file" id="npc-token-input" accept="image/png,image/jpeg,image/webp" style="display:none;" onchange="onNpcTokenSelected(this.files[0])">
               <label class="form-label" style="margin:0;">Contour</label>
@@ -585,7 +579,7 @@
       }
       list.innerHTML = npcs.map(n => `
         <div class="character-item" onclick="editNpc('${n.id}')">
-          <div class="character-item-icon">${n.tokenMediaId ? `<img src="/api/adventures/${roleplaysId}/media/${n.tokenMediaId}/file" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">` : (n.icon || '❓')}</div>
+          <div class="character-item-icon">${n.tokenMediaId ? `<img src="/api/adventures/${roleplaysId}/media/${n.tokenMediaId}/file" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">` : ''}</div>
           <div class="character-item-info">
             <div class="character-item-name">${esc(n.name)}</div>
             <div class="character-item-title">${esc(n.role || '')} · ${n.disposition || 'neutre'}</div>
@@ -613,14 +607,13 @@
       editingNpcId = id;
       document.getElementById('npc-modal-title').textContent = `Modifier — ${n.name}`;
       document.getElementById('npc-name').value = n.name || '';
-      document.getElementById('npc-icon').value = n.icon || '';
       document.getElementById('npc-role').value = n.role || '';
       document.getElementById('npc-disposition').value = n.disposition || 'neutre';
       document.getElementById('npc-backstory').value = n.backstory || '';
       selectedNpcTokenFile = null;
       document.getElementById('npc-token-preview').innerHTML = n.tokenMediaId
         ? `<img src="/api/adventures/${roleplaysId}/media/${n.tokenMediaId}/file">`
-        : (n.icon || '➕');
+        : '';
       document.getElementById('npc-token-color').value = n.tokenColor || '#c9a227';
       document.getElementById('npc-token-preview').style.setProperty('--token-color', n.tokenColor || '#c9a227');
       renderNpcStatsGrid(n.stats || {});
@@ -661,12 +654,11 @@
 
     function resetNpcForm() {
       document.getElementById('npc-name').value = '';
-      document.getElementById('npc-icon').value = '';
       document.getElementById('npc-role').value = '';
       document.getElementById('npc-disposition').value = 'neutre';
       document.getElementById('npc-backstory').value = '';
       selectedNpcTokenFile = null;
-      document.getElementById('npc-token-preview').innerHTML = '➕';
+      document.getElementById('npc-token-preview').innerHTML = '';
       document.getElementById('npc-token-color').value = '#c9a227';
       document.getElementById('npc-token-preview').style.setProperty('--token-color', '#c9a227');
       renderNpcStatsGrid({});
@@ -737,7 +729,6 @@
 
       const payload = {
         name,
-        icon: document.getElementById('npc-icon').value.trim() || '❓',
         role: document.getElementById('npc-role').value.trim(),
         disposition: document.getElementById('npc-disposition').value,
         backstory: document.getElementById('npc-backstory').value.trim(),
@@ -820,7 +811,7 @@
       container.innerHTML = npcs.map(n => `
         <label style="display:flex;align-items:center;gap:8px;margin-bottom:6px;cursor:pointer;">
           <input type="checkbox" value="${n.id}" ${selectedIds.includes(n.id) ? 'checked' : ''}>
-          <span>${n.icon || '❓'} ${esc(n.name)}</span>
+          <span>${esc(n.name)}</span>
         </label>
       `).join('');
     }

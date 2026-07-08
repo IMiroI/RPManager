@@ -126,14 +126,15 @@ async function createNpc(roleplayId, ownerId, data) {
   const npc = {
     id: newId(),
     name: data.name || 'Nouveau PNJ',
-    icon: data.icon || '❓',
+    icon: data.icon || '',
     role: data.role || '',
     disposition: data.disposition || 'neutre',
     backstory: data.backstory || '',
     stats: data.stats || {},
     visibleSkills: data.visibleSkills || [],
     hiddenSkills: data.hiddenSkills || [],
-    tokenColor: sanitizeTokenColor(data.tokenColor)
+    tokenColor: sanitizeTokenColor(data.tokenColor),
+    ko: false
   };
   doc.npcs.push(npc);
   await doc.save();
@@ -156,6 +157,23 @@ async function updateNpc(roleplayId, ownerId, npcId, data) {
   if (data.hiddenSkills !== undefined) npc.hiddenSkills = data.hiddenSkills;
   if (data.tokenColor !== undefined) npc.tokenColor = sanitizeTokenColor(data.tokenColor);
 
+  doc.markModified('npcs');
+  await doc.save();
+  return npc;
+}
+
+// Mise à jour rapide des statistiques d'un PNJ en pleine séance (fiche détail MJ) — mêmes bornes
+// que les personnages joueurs (0-99), restreinte aux clés définies pour cette aventure.
+async function updateNpcStatsById(roleplayId, ownerId, npcId, stats) {
+  const doc = await getOwnedAdventure(roleplayId, ownerId);
+  if (!doc) return null;
+  const npc = doc.npcs.find(n => n.id === npcId);
+  if (!npc) return null;
+  const keys = doc.statDefinitions.map(d => d.key);
+  if (!npc.stats) npc.stats = {};
+  for (const key of keys) {
+    if (stats?.[key] !== undefined) npc.stats[key] = Math.min(99, Math.max(0, parseInt(stats[key]) || 0));
+  }
   doc.markModified('npcs');
   await doc.save();
   return npc;
@@ -263,7 +281,7 @@ async function createCharacter(roleplayId, playerId, data) {
     roleplay: roleplayId,
     player: playerId,
     name: data.name,
-    icon: (data.icon || '❓').trim().slice(0, 4) || '❓',
+    icon: (data.icon || '').trim().slice(0, 4),
     tokenColor: sanitizeTokenColor(data.tokenColor),
     backstory: data.backstory || '',
     skills: sanitizeSkills(data.skills),
@@ -276,7 +294,7 @@ async function updateCharacterProfile(roleplayId, playerId, characterId, data) {
   const doc = await AdventureCharacter.findOne({ _id: characterId, roleplay: roleplayId, player: playerId }).catch(() => null);
   if (!doc) return null;
   if (data.name !== undefined) doc.name = data.name;
-  if (data.icon !== undefined) doc.icon = (data.icon || '❓').trim().slice(0, 4) || '❓';
+  if (data.icon !== undefined) doc.icon = (data.icon || '').trim().slice(0, 4);
   if (data.tokenColor !== undefined) doc.tokenColor = sanitizeTokenColor(data.tokenColor);
   if (data.backstory !== undefined) doc.backstory = data.backstory;
   if (data.skills !== undefined) doc.skills = sanitizeSkills(data.skills);
@@ -429,8 +447,8 @@ async function createNpcToken(roleplayId, ownerId, npcId, file) {
 }
 
 async function listPartyMembers(roleplayId) {
-  const chars = await AdventureCharacter.find({ roleplay: roleplayId }).select('name icon tokenMediaId tokenColor');
-  return chars.map(c => ({ id: c._id.toString(), name: c.name, icon: c.icon, tokenMediaId: c.tokenMediaId, tokenColor: c.tokenColor }));
+  const chars = await AdventureCharacter.find({ roleplay: roleplayId }).select('name icon tokenMediaId tokenColor ko');
+  return chars.map(c => ({ id: c._id.toString(), name: c.name, icon: c.icon, tokenMediaId: c.tokenMediaId, tokenColor: c.tokenColor, ko: !!c.ko }));
 }
 
 // Vue publique des PNJ (nom/icône/token) — sans stats/compétences/notes MJ — envoyée aux joueurs
@@ -438,7 +456,29 @@ async function listPartyMembers(roleplayId) {
 async function listNpcRoster(roleplayId) {
   const doc = await Roleplay.findById(roleplayId).select('npcs').catch(() => null);
   if (!doc) return [];
-  return (doc.npcs || []).map(n => ({ id: n.id, name: n.name, icon: n.icon, tokenMediaId: n.tokenMediaId || null, tokenColor: n.tokenColor || '#c9a227' }));
+  return (doc.npcs || []).map(n => ({ id: n.id, name: n.name, icon: n.icon, tokenMediaId: n.tokenMediaId || null, tokenColor: n.tokenColor || '#c9a227', ko: !!n.ko }));
+}
+
+// ─── Marqueur KO/mort sur un token — bascule en un clic, réservé au MJ ──────
+async function setCharacterKo(roleplayId, ownerId, characterId, ko) {
+  const doc = await getOwnedAdventure(roleplayId, ownerId);
+  if (!doc) return null;
+  const character = await AdventureCharacter.findOne({ _id: characterId, roleplay: roleplayId });
+  if (!character) return null;
+  character.ko = !!ko;
+  await character.save();
+  return character.toJSON();
+}
+
+async function setNpcKo(roleplayId, ownerId, npcId, ko) {
+  const doc = await getOwnedAdventure(roleplayId, ownerId);
+  if (!doc) return null;
+  const npc = doc.npcs.find(n => n.id === npcId);
+  if (!npc) return null;
+  npc.ko = !!ko;
+  doc.markModified('npcs');
+  await doc.save();
+  return npc;
 }
 
 async function getMapTokenPositions(roleplayId, mediaId) {
@@ -489,11 +529,13 @@ async function removeTokenPosition(roleplayId, mediaId, characterId) {
 }
 
 // ─── Brouillard de guerre (par carte) ───────────────────────────────────────
-// On stocke uniquement les cases révélées (voir models/Media.js) — masquer/révéler une case ou
-// une zone se ramène donc à ajouter/retirer des clés "col,row" d'un Set, jamais à énumérer tout
-// ce qui doit rester masqué.
+// Grille FIXE et propre au brouillard (voir FOG_GRID_COLUMNS côté client), totalement indépendante
+// de la grille tactique des tokens — redimensionner celle-ci n'affecte donc jamais le brouillard.
+// On stocke uniquement les cases révélées (voir models/Media.js) — masquer/révéler une case ou une
+// zone se ramène donc à ajouter/retirer des clés "col,row" d'un Set, jamais à énumérer tout ce qui
+// doit rester masqué.
 function toFogState(media) {
-  return { enabled: media.fog.enabled, gridColumns: media.fog.gridColumns, revealedCells: media.fog.revealedCells };
+  return { enabled: media.fog.enabled, revealedCells: media.fog.revealedCells };
 }
 
 async function getFog(roleplayId, mediaId) {
@@ -501,19 +543,12 @@ async function getFog(roleplayId, mediaId) {
   return media ? toFogState(media) : null;
 }
 
-async function setFogEnabled(roleplayId, ownerId, mediaId, enabled, gridColumns) {
+async function setFogEnabled(roleplayId, ownerId, mediaId, enabled) {
   const doc = await getOwnedAdventure(roleplayId, ownerId);
   if (!doc) return null;
   const media = await Media.findOne({ _id: mediaId, roleplay: roleplayId, kind: 'map' }).catch(() => null);
   if (!media) return null;
   media.fog.enabled = !!enabled;
-  // La résolution du brouillard (nombre de colonnes) n'est (re)figée sur la grille tactique en
-  // cours que tant qu'aucune case n'a encore été révélée — sinon activer/désactiver le brouillard
-  // par erreur changerait la résolution sous des cases déjà révélées et les désaligner (même bug
-  // que le redimensionnement de la grille tactique, voir setGridSize).
-  if (gridColumns && media.fog.revealedCells.length === 0) {
-    media.fog.gridColumns = Math.min(60, Math.max(5, parseInt(gridColumns) || 20));
-  }
   media.markModified('fog');
   await media.save();
   return toFogState(media);
@@ -531,27 +566,6 @@ async function setFogCells(roleplayId, ownerId, mediaId, cells, revealed) {
     const key = `${col},${row}`;
     if (revealed) set.add(key); else set.delete(key);
   }
-  media.fog.revealedCells = [...set];
-  media.markModified('fog');
-  await media.save();
-  return toFogState(media);
-}
-
-// Remplace intégralement la résolution ET les cases révélées — utilisé quand le MJ redimensionne
-// la grille tactique : le client a déjà ré-échantillonné les cases révélées dans la NOUVELLE
-// résolution (il est seul à connaître le ratio naturel de l'image), on se contente ici de
-// persister ce nouvel état tel quel plutôt que de le fusionner avec l'ancien.
-async function replaceFogCells(roleplayId, ownerId, mediaId, gridColumns, cells) {
-  const doc = await getOwnedAdventure(roleplayId, ownerId);
-  if (!doc) return null;
-  const media = await Media.findOne({ _id: mediaId, roleplay: roleplayId, kind: 'map' }).catch(() => null);
-  if (!media) return null;
-  const set = new Set();
-  for (const cell of (cells || []).slice(0, 5000)) {
-    const col = parseInt(cell?.col), row = parseInt(cell?.row);
-    if (Number.isInteger(col) && Number.isInteger(row) && col >= 0 && row >= 0) set.add(`${col},${row}`);
-  }
-  media.fog.gridColumns = Math.min(60, Math.max(5, parseInt(gridColumns) || 20));
   media.fog.revealedCells = [...set];
   media.markModified('fog');
   await media.save();
@@ -646,7 +660,7 @@ module.exports = {
   isOwnerOrMember,
   resolveByInviteCode,
   listChapters, createChapter, updateChapter, deleteChapter, setCurrentChapter,
-  listNpcs, createNpc, updateNpc, deleteNpc,
+  listNpcs, createNpc, updateNpc, updateNpcStatsById, deleteNpc,
   createMedia, listMedia, getMediaFile, deleteMedia,
   listCharactersForPlayer, createCharacter, updateCharacterProfile, listCharactersAcrossAdventures,
   listCharacters, updateCharacterStatsById, updateCharacterInventoryById, updateCharacterSkillsById, appendJournalEntry, getCharacterById,
@@ -654,5 +668,6 @@ module.exports = {
   createCharacterToken, createNpcToken, listPartyMembers, listNpcRoster, getMapTokenPositions, setTokenPosition,
   setTokenRotation, removeTokenPosition, getNpcById, setGridSize,
   syncStatDefinitions, sanitizeTokenColor,
-  getFog, setFogEnabled, setFogCells, replaceFogCells, resetFog, autoRevealFog
+  getFog, setFogEnabled, setFogCells, resetFog, autoRevealFog,
+  setCharacterKo, setNpcKo
 };

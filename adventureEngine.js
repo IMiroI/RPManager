@@ -12,6 +12,10 @@ function openSeance(roleplayId) {
     gmSocketId: null,
     currentChapterId: null,
     nowShowing: null, // { mediaId }
+    // Carte préparée (nowShowing) mais pas encore montrée aux joueurs — laisse au MJ le temps de
+    // placer tokens/sprites et de peindre le brouillard avant de révéler la scène. Repasse à false
+    // à chaque changement de carte (adv:gm:showMedia), pour repartir en préparation à chaque fois.
+    mapVisible: false,
     nowPlaying: null, // { mediaId, startedAt, paused }
     journal: [], // journal de groupe : chat + jets de dé/compétences, { id, kind, visibility, authorName, authorIcon, authorTokenMediaId, ... }
     initiative: { round: 1, currentTurnId: null, entries: [] }, // suivi d'initiative de combat, transitoire comme le reste de la séance
@@ -24,7 +28,7 @@ function openSeance(roleplayId) {
 function addInitiativeEntry(seance, { kind, entityId, name, icon, tokenMediaId, tokenColor }) {
   const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   const score = rollDice(1, 20).rolls[0];
-  const entry = { id, kind, entityId, name, icon: icon || '❓', tokenMediaId: tokenMediaId || null, tokenColor: tokenColor || '#c9a227', score };
+  const entry = { id, kind, entityId, name, icon: icon || '', tokenMediaId: tokenMediaId || null, tokenColor: tokenColor || '#c9a227', score };
   seance.initiative.entries.push(entry);
   seance.initiative.entries.sort((a, b) => b.score - a.score);
   return entry;

@@ -29,9 +29,10 @@ const adventureCharacterSchema = new mongoose.Schema({
   roleplay: { type: mongoose.Schema.Types.ObjectId, ref: 'Roleplay', required: true, index: true },
   player: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
   name: { type: String, required: true, trim: true },
-  icon: { type: String, default: '❓' },
+  icon: { type: String, default: '' },
   tokenMediaId: { type: String, default: null },
   tokenColor: { type: String, default: '#c9a227' }, // couleur du contour du token sur la carte
+  ko: { type: Boolean, default: false }, // KO/mort — affiche une croix rouge sur le token, géré par le MJ
   backstory: { type: String, default: '' },
   skills: { type: [skillSchema], default: [] },
   // Statistiques libres : clés définies par le MJ (roleplay.statDefinitions), valeurs numériques.

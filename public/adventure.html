@@ -323,7 +323,7 @@
             <div id="live-character-switcher"></div>
 
             <div class="live-portrait" onclick="openCharacterDetailModal(activeCharacterId)">
-              <div class="live-portrait-icon" id="live-char-icon">❓</div>
+              <div class="live-portrait-icon" id="live-char-icon"></div>
               <div class="live-portrait-name" id="live-char-name-mini"></div>
               <div class="text-muted text-sm">Voir la fiche complète</div>
             </div>
@@ -504,7 +504,7 @@
       }
       el.innerHTML = myCharacters.map(c => `
         <div class="character-item" style="cursor:pointer;" onclick="openCharacterDetailModal('${c.id}')">
-          <div class="character-item-icon">${c.tokenMediaId ? `<img src="/api/adventures/${adventure.id}/media/${c.tokenMediaId}/file" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">` : (c.icon || '❓')}</div>
+          <div class="character-item-icon">${c.tokenMediaId ? `<img src="/api/adventures/${adventure.id}/media/${c.tokenMediaId}/file" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">` : ''}</div>
           <div class="character-item-info">
             <div class="character-item-name">${esc(c.name)}</div>
             <div class="character-item-title">${esc((c.backstory || '').slice(0, 60)) || 'Aucune histoire renseignée'}</div>
@@ -626,7 +626,7 @@
       document.getElementById('char-detail-title').textContent = character.name;
       document.getElementById('char-detail-token-preview').innerHTML = character.tokenMediaId
         ? `<img src="/api/adventures/${adventure.id}/media/${character.tokenMediaId}/file">`
-        : (character.icon || '❓');
+        : '';
       document.getElementById('char-detail-token-preview').style.setProperty('--token-color', character.tokenColor || '#c9a227');
       document.getElementById('char-detail-token-color').value = character.tokenColor || '#c9a227';
       document.getElementById('char-detail-backstory').textContent = character.backstory || 'Aucune histoire renseignée.';
@@ -648,7 +648,7 @@
       const character = myCharacters.find(c => c.id === viewingCharacterId);
       document.getElementById('char-detail-token-preview').innerHTML = character?.tokenMediaId
         ? `<img src="/api/adventures/${adventure.id}/media/${character.tokenMediaId}/file">`
-        : (character?.icon || '❓');
+        : '';
     }
 
     async function updateViewedCharacterTokenColor(color) {
@@ -742,10 +742,12 @@
         if (state.gridSize) gridColumns = state.gridSize;
         initJournalFromState(state.journal);
         updateConnectedBadge(state.connectedCount || 1);
-        currentFog = state.fog || { enabled: false, gridColumns: 20, revealedCells: [] };
+        currentFog = state.fog || { enabled: false, revealedCells: [] };
         if (state.nowShowing) {
           document.getElementById('live-map-media').innerHTML = `<img id="live-map-display" src="${state.nowShowing.url}" onload="recomputeGrid()">`;
           document.getElementById('live-grid-overlay').style.display = gridVisible ? '' : 'none';
+        } else {
+          showMapWaitingPlaceholder();
         }
         recomputeGrid();
         renderTokens(state.tokenPositions || []);
@@ -773,6 +775,7 @@
       });
 
       socket.on('adv:player:nowShowing', applyNowShowing);
+      socket.on('adv:player:mapHidden', showMapWaitingPlaceholder);
       socket.on('adv:player:nowPlaying', applyNowPlaying);
       socket.on('adv:player:musicPaused', () => {
         const audio = document.getElementById('live-audio');
@@ -788,6 +791,9 @@
       socket.on('adv:token:position', ({ characterId, kind, x, y, final, spriteMediaId }) => updateTokenPosition(characterId, kind, x, y, final, spriteMediaId));
       socket.on('adv:skill:result', (result) => {
         showToast(`🎲 ${result.skillName} : ${result.percentile} / d${result.diceSides}=${result.skillRoll}`, 'info');
+      });
+      socket.on('adv:stat:result', (result) => {
+        showToast(`🎲 ${result.statLabel} (${result.statValue}) : ${result.percentile}`, 'info');
       });
       socket.on('adv:journal:entry', (entry) => appendJournalEntry(entry));
       socket.on('adv:player:connectedCount', ({ count }) => updateConnectedBadge(count));
@@ -810,8 +816,16 @@
 
       socket.on('adv:initiative:state', (initiative) => renderInitiativeList(initiative));
 
-      socket.on('adv:fog:state', ({ enabled, gridColumns: fogCols, revealedCells }) => {
-        currentFog = { enabled, gridColumns: fogCols, revealedCells };
+      socket.on('adv:entity:ko', ({ characterId, kind, ko }) => {
+        const pool = kind === 'npc' ? npcRoster : partyMembers;
+        const entity = pool.find(x => x.id === characterId);
+        if (entity) entity.ko = ko;
+        renderTokens(currentTokenPositions);
+      });
+
+      socket.on('adv:fog:state', ({ enabled, revealedCells }) => {
+        currentFog = { enabled, revealedCells };
+        renderTokens(currentTokenPositions);
         renderFogOverlay();
       });
     }
@@ -838,7 +852,7 @@
       if (!list) return;
       list.innerHTML = currentInitiative.entries.map(e => `
         <div class="character-item${e.id === currentInitiative.currentTurnId ? ' initiative-active' : ''}">
-          <div class="character-item-icon">${e.tokenMediaId ? `<img src="/api/adventures/${adventure.id}/media/${e.tokenMediaId}/file" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">` : (e.icon || '❓')}</div>
+          <div class="character-item-icon">${e.tokenMediaId ? `<img src="/api/adventures/${adventure.id}/media/${e.tokenMediaId}/file" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">` : ''}</div>
           <div class="character-item-info">
             <div class="character-item-name">${esc(e.name)}</div>
           </div>
@@ -868,7 +882,7 @@
       const active = getActiveCharacter();
       const activeIcon = active?.tokenMediaId
         ? `<img src="/api/adventures/${adventure.id}/media/${active.tokenMediaId}/file">`
-        : (active?.icon || '❓');
+        : '';
       el.innerHTML = `
         <div class="char-select">
           <button type="button" class="char-select-trigger" onclick="toggleCharSelectDropdown()">
@@ -894,7 +908,7 @@
       list.innerHTML = filtered.length
         ? filtered.map(c => `
             <div class="char-select-option${c.id === activeCharacterId ? ' active' : ''}" onclick="selectActiveCharacter('${c.id}')">
-              <span class="char-select-chip-icon">${c.tokenMediaId ? `<img src="/api/adventures/${adventure.id}/media/${c.tokenMediaId}/file">` : (c.icon || '❓')}</span>
+              <span class="char-select-chip-icon">${c.tokenMediaId ? `<img src="/api/adventures/${adventure.id}/media/${c.tokenMediaId}/file">` : ''}</span>
               ${esc(c.name)}
             </div>
           `).join('')
@@ -931,17 +945,23 @@
       if (!character) return;
       document.getElementById('live-char-icon').innerHTML = character.tokenMediaId
         ? `<img src="/api/adventures/${adventure.id}/media/${character.tokenMediaId}/file">`
-        : (character.icon || '❓');
+        : '';
       document.getElementById('live-char-name-mini').textContent = character.name;
       document.getElementById('live-stats-display').innerHTML = statDefs.map(def => `
         <div class="stat-display">
           <div class="stat-label">${esc(def.label)}</div>
           <div class="stat-value">${character.stats[def.key] ?? '—'}</div>
+          <button type="button" class="btn btn-gold btn-sm stat-roll-btn" onclick="rollStatCheck('${def.key}')" title="Lancer 1d100">🎲</button>
         </div>
       `).join('');
       renderSkillsQuick('live-skills-list', character.skills, true, character.id);
       renderInventory('live-inventory-display', character.inventory);
       renderJournal('live-journal', character.journal);
+    }
+
+    function rollStatCheck(statKey) {
+      if (!socket || !activeCharacterId) return;
+      socket.emit('adv:stat:roll', { roleplayId: adventure.id, characterId: activeCharacterId, statKey });
     }
 
     // ─── Journal de groupe (chat + jets de dé/compétences, avec le token de l'auteur) ────
@@ -959,6 +979,7 @@
     function formatJournalEntry(e) {
       if (e.kind === 'chat') return (e.mp ? '<strong class="text-muted">MP</strong> - ' : '') + esc(e.text);
       if (e.kind === 'skill') return `🎲 <strong>${esc(e.skillName)}</strong> : 1d100=${e.percentile} · 1d${e.diceSides}=<strong>${e.skillRoll}</strong>`;
+      if (e.kind === 'stat') return `🎲 <strong>${esc(e.statLabel)}</strong> (${e.statValue}) : 1d100=<strong>${e.percentile}</strong>`;
       if (e.kind === 'dice') return `🎲 ${e.count}d${e.sides} → ${e.rolls.join(', ')} = <strong>${e.total}</strong>`;
       return '';
     }
@@ -966,7 +987,7 @@
     function journalEntryRowHtml(e) {
       const avatar = e.authorTokenMediaId
         ? `<img src="/api/adventures/${adventure.id}/media/${e.authorTokenMediaId}/file">`
-        : (e.authorIcon || '❓');
+        : '';
       return `
         <div class="journal-entry-row">
           <div class="journal-entry-avatar">${avatar}</div>
@@ -1049,43 +1070,71 @@
       renderFogOverlay();
     }
 
-    // ─── Brouillard de guerre : dimensions de grille indépendantes du conteneur ────
-    // Le nombre de colonnes vient de fog.gridColumns (figé côté serveur) et le nombre de lignes est
-    // dérivé du ratio NATUREL de l'image (naturalWidth/naturalHeight), identique pour tout le monde
-    // — contrairement à la taille du conteneur à l'écran (dépend de la fenêtre/zoom/barre latérale
-    // de chacun). C'est ce qui garantit que le MJ et les joueurs voient le brouillard exactement aux
-    // mêmes endroits, quelle que soit la forme de leur fenêtre.
-    let currentFog = { enabled: false, gridColumns: 20, revealedCells: [] };
+    // ─── Brouillard de guerre : grille FIXE, propre au brouillard, indépendante de la grille
+    // tactique des tokens. Les cases sont des CARRÉS calés sur la zone réellement occupée par
+    // l'image dans le conteneur (object-fit:contain peut laisser des bandes vides si le conteneur
+    // n'a pas le même ratio que l'image — on calcule donc le rectangle réel de l'image, identique
+    // pour tout le monde puisque basé sur son ratio NATUREL, contrairement à la taille du conteneur
+    // à l'écran qui dépend de la fenêtre/zoom/barre latérale de chacun).
+    const FOG_GRID_COLUMNS = 30;
+    let currentFog = { enabled: false, revealedCells: [] };
 
-    function fogGridDims() {
-      const cols = currentFog.gridColumns || gridColumns || 20;
+    function getFogGeometry() {
+      const content = document.getElementById('live-zoom-content');
+      const rect = content.getBoundingClientRect();
       const img = document.getElementById('live-map-display');
-      if (!img || !img.naturalWidth || !img.naturalHeight) return { cols, rows: cols };
-      return { cols, rows: Math.max(1, Math.round(cols * img.naturalHeight / img.naturalWidth)) };
+      if (!rect.width || !rect.height || !img || !img.naturalWidth || !img.naturalHeight) {
+        return { cellPx: 0, offsetX: 0, offsetY: 0, cols: FOG_GRID_COLUMNS, rows: FOG_GRID_COLUMNS };
+      }
+      const containerRatio = rect.width / rect.height;
+      const imgRatio = img.naturalWidth / img.naturalHeight;
+      let imgW, imgH, offsetX, offsetY;
+      if (containerRatio > imgRatio) {
+        imgH = rect.height;
+        imgW = imgH * imgRatio;
+        offsetX = (rect.width - imgW) / 2;
+        offsetY = 0;
+      } else {
+        imgW = rect.width;
+        imgH = imgW / imgRatio;
+        offsetX = 0;
+        offsetY = (rect.height - imgH) / 2;
+      }
+      const cellPx = imgW / FOG_GRID_COLUMNS;
+      return { cellPx, offsetX, offsetY, cols: FOG_GRID_COLUMNS, rows: Math.max(1, Math.round(imgH / cellPx)) };
+    }
+
+    function isCellRevealed(col, row) {
+      return currentFog.revealedCells.includes(`${col},${row}`);
     }
 
     function renderFogOverlay() {
       const layer = document.getElementById('live-fog-layer');
       if (!layer) return;
       if (!currentFog.enabled) { layer.innerHTML = ''; return; }
-      const { cols, rows } = fogGridDims();
-      const cellW = 100 / cols, cellH = 100 / rows;
+      const geo = getFogGeometry();
+      if (!geo.cellPx) { layer.innerHTML = ''; return; }
       const revealed = new Set(currentFog.revealedCells);
       let html = '';
-      for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) {
+      for (let r = 0; r < geo.rows; r++) {
+        for (let c = 0; c < geo.cols; c++) {
           if (revealed.has(`${c},${r}`)) continue;
-          html += `<div class="fog-cell" style="left:${c * cellW}%;top:${r * cellH}%;width:${cellW}%;height:${cellH}%;"></div>`;
+          html += `<div class="fog-cell" style="left:${geo.offsetX + c * geo.cellPx}px;top:${geo.offsetY + r * geo.cellPx}px;width:${geo.cellPx}px;height:${geo.cellPx}px;"></div>`;
         }
       }
       layer.innerHTML = html;
     }
 
     function cellFromPercent(xPercent, yPercent) {
-      const { cols, rows } = fogGridDims();
+      const content = document.getElementById('live-zoom-content');
+      const rect = content.getBoundingClientRect();
+      const geo = getFogGeometry();
+      if (!geo.cellPx) return { col: -1, row: -1 };
+      const pxX = (xPercent / 100) * rect.width;
+      const pxY = (yPercent / 100) * rect.height;
       return {
-        col: Math.floor((xPercent / 100) * cols),
-        row: Math.floor((yPercent / 100) * rows)
+        col: Math.floor((pxX - geo.offsetX) / geo.cellPx),
+        row: Math.floor((pxY - geo.offsetY) / geo.cellPx)
       };
     }
 
@@ -1207,12 +1256,23 @@
     function applyNowShowing({ url, tokenPositions: tp, partyMembers: pm, npcRoster: nr, fog }) {
       document.getElementById('live-map-media').innerHTML = `<img id="live-map-display" src="${url}" onload="recomputeGrid()">`;
       document.getElementById('live-grid-overlay').style.display = gridVisible ? '' : 'none';
-      currentFog = fog || { enabled: false, gridColumns: 20, revealedCells: [] };
+      currentFog = fog || { enabled: false, revealedCells: [] };
       recomputeGrid();
       if (pm) partyMembers = pm;
       if (nr) npcRoster = nr;
       selectedToken = null; // la carte a changé, la sélection précédente ne s'applique plus
       renderTokens(tp || []);
+    }
+
+    // Le MJ prépare la scène (place tokens/sprites, peint le brouillard) avant de la révéler —
+    // tant que ce n'est pas fait, on affiche une attente plutôt que la carte/les tokens.
+    function showMapWaitingPlaceholder() {
+      document.getElementById('live-map-media').innerHTML = '<p class="text-muted text-sm">Le MJ prépare la scène...</p>';
+      document.getElementById('live-grid-overlay').style.display = 'none';
+      document.getElementById('live-token-layer').innerHTML = '';
+      document.getElementById('live-fog-layer').innerHTML = '';
+      currentTokenPositions = [];
+      selectedToken = null;
     }
 
     // ─── Tokens (le joueur ne déplace que le sien, les PNJ sont en lecture seule) ────
@@ -1229,11 +1289,20 @@
       return currentInitiative.entries.find(e => e.id === currentInitiative.currentTurnId) || null;
     }
 
+    // Le brouillard masque aussi les tokens des AUTRES (PNJ, autres joueurs, décor) qui se trouvent
+    // dans une case non révélée — mais jamais mes propres personnages, toujours visibles pour moi.
+    function isTokenHiddenByFog(p) {
+      if (!currentFog.enabled) return false;
+      if (p.kind === 'character' && myCharacters.some(c => c.id === p.characterId)) return false;
+      const { col, row } = cellFromPercent(p.x, p.y);
+      return !isCellRevealed(col, row);
+    }
+
     function renderTokens(positions) {
       currentTokenPositions = positions;
       const layer = document.getElementById('live-token-layer');
       const activeTurn = currentInitiativeEntry();
-      layer.innerHTML = positions.map(p => {
+      layer.innerHTML = positions.filter(p => !isTokenHiddenByFog(p)).map(p => {
         if (p.kind === 'sprite') {
           return `
             <div class="token sprite-token" data-character-id="${p.characterId}" data-kind="sprite" style="left:${p.x}%;top:${p.y}%;transform:translate(-50%,-50%) rotate(${p.rotation || 0}deg);">
@@ -1245,11 +1314,12 @@
         if (!entity) return '';
         const visual = entity.tokenMediaId
           ? `<img src="/api/adventures/${adventure.id}/media/${entity.tokenMediaId}/file">`
-          : (entity.icon || '❓');
+          : '';
         const selected = selectedToken && selectedToken.characterId === p.characterId ? ' selected' : '';
         const onTurn = activeTurn && activeTurn.entityId === p.characterId && activeTurn.kind === (p.kind || 'character') ? ' initiative-turn' : '';
+        const ko = entity.ko ? ' token-ko' : '';
         return `
-          <div class="token${selected}${onTurn}" data-character-id="${p.characterId}" data-kind="${p.kind || 'character'}" style="left:${p.x}%;top:${p.y}%;transform:translate(-50%,-50%) rotate(${p.rotation || 0}deg);--token-color:${entity.tokenColor || '#c9a227'};">
+          <div class="token${selected}${onTurn}${ko}" data-character-id="${p.characterId}" data-kind="${p.kind || 'character'}" style="left:${p.x}%;top:${p.y}%;transform:translate(-50%,-50%) rotate(${p.rotation || 0}deg);--token-color:${entity.tokenColor || '#c9a227'};">
             ${visual}
             <span class="token-label">${esc(entity.name)}</span>
           </div>
