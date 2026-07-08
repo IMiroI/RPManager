@@ -1,0 +1,34 @@
+# ============================================
+# Exemple de reverse proxy nginx pour RoleMaster
+# ============================================
+# Suppose un certificat déjà obtenu (ex: certbot) pour votredomaine.exemple.
+# Sans HTTPS devant RoleMaster, le cookie de session ne peut jamais être
+# marqué "secure" et circule en clair — à corriger avant mise en ligne publique.
+
+server {
+  listen 80;
+  server_name votredomaine.exemple;
+  return 301 https://$host$request_uri;
+}
+
+server {
+  listen 443 ssl http2;
+  server_name votredomaine.exemple;
+
+  ssl_certificate     /etc/letsencrypt/live/votredomaine.exemple/fullchain.pem;
+  ssl_certificate_key /etc/letsencrypt/live/votredomaine.exemple/privkey.pem;
+
+  location / {
+    proxy_pass http://localhost:3003;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    # Indispensable pour que Socket.io (WebSocket) fonctionne à travers nginx —
+    # sans ces deux en-têtes, la connexion retombe en polling HTTP dégradé.
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+  }
+}

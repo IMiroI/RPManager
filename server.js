@@ -192,6 +192,7 @@ app.delete('/api/sessions/:code', (req, res) => {
 // ─── Pages ───────────────────────────────────────────
 app.get('/login', (req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
 app.get('/register', (req, res) => res.sendFile(path.join(__dirname, 'public', 'register.html')));
+app.get('/legal', (req, res) => res.sendFile(path.join(__dirname, 'public', 'legal.html')));
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 app.get('/editor', (req, res) => res.sendFile(path.join(__dirname, 'public', 'editor.html')));
 app.get('/editor/:id', (req, res) => res.sendFile(path.join(__dirname, 'public', 'editor.html')));
@@ -607,7 +608,6 @@ io.on('connection', (socket) => {
     if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
     adventureEngine.openSeance(roleplayId);
     io.to(`adv-gm:${roleplayId}`).emit('adv:gm:state', await buildAdventureGmState(roleplayId));
-    io.to(`adv-players:${roleplayId}`).emit('adv:player:seanceOpened');
   });
 
   socket.on('adv:gm:closeSeance', async ({ roleplayId }) => {
@@ -745,8 +745,7 @@ io.on('connection', (socket) => {
   socket.on('adv:gm:rollDice', ({ roleplayId, count, sides }) => {
     if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
     const result = adventureEngine.rollDice(count, sides);
-    socket.emit('adv:gm:diceResult', result);
-    io.to(`adv-players:${roleplayId}`).emit('adv:player:gmDiceResult', result);
+    socket.emit('adv:gm:diceResult', result); // toast local MJ ; les joueurs voient le résultat via adv:journal:entry ci-dessous
 
     const seance = adventureEngine.getSeance(roleplayId);
     if (seance) {
@@ -854,8 +853,7 @@ io.on('connection', (socket) => {
     if (advRole !== 'player' || advRoleplayId !== roleplayId) return;
     if (!advCharacterIds.has(characterId)) return;
     const result = adventureEngine.rollDice(count, sides);
-    socket.emit('adv:player:diceResult', result);
-    io.to(`adv-gm:${roleplayId}`).emit('adv:gm:diceResult', result);
+    io.to(`adv-gm:${roleplayId}`).emit('adv:gm:diceResult', result); // le joueur voit son propre résultat via adv:journal:entry ci-dessous
 
     const seance = adventureEngine.getSeance(roleplayId);
     if (seance) {
@@ -930,7 +928,7 @@ io.on('connection', (socket) => {
       const seance = adventureEngine.getSeance(roleplayId);
       if (seance) {
         for (const [socketId, info] of seance.connectedPlayers) {
-          if (info.characterId === characterId) { io.to(socketId).emit('adv:skill:result', result); break; }
+          if (info.characters?.some(c => c.id === characterId)) { io.to(socketId).emit('adv:skill:result', result); break; }
         }
       }
     }

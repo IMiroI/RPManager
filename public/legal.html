@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mentions légales &amp; confidentialité — RPManager</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    .legal-wrap {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 48px 24px 80px;
+    }
+    .legal-brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      margin-bottom: 32px;
+    }
+    .legal-brand:hover { text-decoration: none; }
+    .legal-brand .brand-mono { width: 40px; height: 40px; border-radius: 11px; font-size: 1.2rem; }
+    .legal-section { margin-bottom: 40px; }
+    .legal-section h1 {
+      font-family: var(--font-display);
+      font-size: 1.6rem;
+      margin-bottom: 6px;
+    }
+    .legal-section h2 {
+      font-family: var(--font-display);
+      font-size: 1.2rem;
+      margin: 28px 0 10px;
+      color: var(--gold-light);
+    }
+    .legal-section p, .legal-section li { color: var(--text-muted); font-size: 0.92rem; line-height: 1.6; }
+    .legal-section ul { padding-left: 20px; margin: 8px 0; }
+    .legal-updated { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 24px; }
+    .legal-todo {
+      background: rgba(224,101,78,0.12);
+      border: 1px solid var(--danger, #e0654e);
+      border-radius: var(--radius-sm);
+      padding: 14px 16px;
+      margin-bottom: 28px;
+      font-size: 0.88rem;
+    }
+    .legal-todo strong { color: #f0a08f; }
+    .legal-back { display: inline-block; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div class="legal-wrap">
+    <a href="/" class="legal-brand">
+      <div class="brand-mono">R</div>
+      <span class="brand-name">RPManager</span>
+    </a>
+
+    <div class="legal-todo">
+      <strong>À compléter avant mise en ligne publique :</strong> les champs entre crochets
+      (identité de l'éditeur, email de contact, hébergeur) sont des repères à remplacer par les
+      informations réelles. Cette page ne doit pas rester en l'état sur un site accessible au public.
+    </div>
+
+    <section class="legal-section" id="mentions-legales">
+      <h1>Mentions légales</h1>
+      <div class="legal-updated">Dernière mise à jour : [date]</div>
+
+      <h2>Éditeur du site</h2>
+      <p>
+        Ce site est édité à titre personnel et non professionnel par [Nom / pseudonyme],
+        joignable à l'adresse : [email de contact].
+      </p>
+
+      <h2>Directeur de la publication</h2>
+      <p>[Nom / pseudonyme], en sa qualité d'éditeur du site.</p>
+
+      <h2>Hébergement</h2>
+      <p>
+        Le site est hébergé par [nom de l'hébergeur, adresse, site web] — à compléter une fois
+        l'hébergement de production choisi.
+      </p>
+
+      <h2>Propriété intellectuelle</h2>
+      <p>
+        Le contenu créé par les utilisateurs (roleplays, personnages, textes, images et musiques
+        importées) reste la propriété de son auteur. RPManager n'en revendique aucun droit et ne
+        les exploite à aucune autre fin que le fonctionnement du service.
+      </p>
+    </section>
+
+    <section class="legal-section" id="confidentialite">
+      <h1>Politique de confidentialité</h1>
+      <div class="legal-updated">Dernière mise à jour : [date]</div>
+
+      <h2>Responsable du traitement</h2>
+      <p>[Nom / pseudonyme] — [email de contact].</p>
+
+      <h2>Données collectées</h2>
+      <ul>
+        <li><strong>Compte</strong> : nom d'utilisateur et mot de passe. Le mot de passe n'est
+          jamais stocké en clair : seule son empreinte chiffrée (hachage bcrypt) est conservée.</li>
+        <li><strong>Contenu de jeu</strong> : les roleplays, personnages, fiches de PNJ, messages
+          de journal et jets de dés que vous créez en utilisant le service.</li>
+        <li><strong>Fichiers importés</strong> : les images (cartes, tokens, sprites) et musiques
+          que vous choisissez d'uploader pour vos parties.</li>
+      </ul>
+      <p>Aucune donnée de santé, financière ou sensible n'est demandée ni collectée.</p>
+
+      <h2>Finalité et base légale</h2>
+      <p>
+        Ces données sont utilisées exclusivement pour faire fonctionner le service : créer votre
+        compte, sauvegarder vos parties et vous permettre d'y rejouer. Le traitement repose sur
+        l'exécution du service que vous demandez en créant un compte.
+      </p>
+
+      <h2>Cookies</h2>
+      <p>
+        RPManager ne dépose qu'un seul cookie : <code>connect.sid</code>, qui garde votre session
+        connectée. Ce cookie est strictement nécessaire au fonctionnement du site — sans lui,
+        impossible de rester connecté — il est donc exempté de consentement au sens de la
+        réglementation ePrivacy/RGPD. Aucun cookie de mesure d'audience, de publicité ou de suivi
+        n'est utilisé, et aucun outil tiers (analytics, réseaux sociaux, publicité) n'est intégré
+        au site.
+      </p>
+
+      <h2>Conservation des données</h2>
+      <p>
+        Vos données sont conservées tant que votre compte existe. Vous pouvez demander la
+        suppression de votre compte et de son contenu à tout moment en écrivant à [email de
+        contact].
+      </p>
+
+      <h2>Destinataires et hébergement</h2>
+      <p>
+        Vos données ne sont partagées avec aucun tiers, ni vendues, ni utilisées à des fins
+        publicitaires. Elles sont hébergées chez [hébergeur — à compléter], [dans l'Union
+        européenne / hors Union européenne — à préciser].
+      </p>
+
+      <h2>Vos droits</h2>
+      <p>
+        Conformément au Règlement Général sur la Protection des Données (RGPD), vous disposez d'un
+        droit d'accès, de rectification, d'effacement, de limitation et de portabilité de vos
+        données, ainsi que d'un droit d'opposition. Pour l'exercer, écrivez à [email de contact].
+        Vous pouvez aussi introduire une réclamation auprès de la CNIL (<a href="https://www.cnil.fr" target="_blank" rel="noopener">www.cnil.fr</a>).
+      </p>
+    </section>
+
+    <a href="/" class="legal-back">← Retour à l'accueil</a>
+  </div>
+</body>
+</html>

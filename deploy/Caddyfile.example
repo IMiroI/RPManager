@@ -1,0 +1,21 @@
+# ============================================
+# Exemple de reverse proxy Caddy pour RoleMaster
+# ============================================
+# Caddy gère automatiquement le certificat HTTPS (Let's Encrypt) et le
+# renouvellement — aucune configuration TLS manuelle nécessaire.
+#
+# Copier ce fichier en Caddyfile sur l'hôte de production, ajuster le domaine,
+# puis lancer Caddy en frontal du conteneur RoleMaster (qui continue d'écouter
+# en HTTP simple sur le port 3003, jamais exposé directement sur Internet).
+#
+# Sans ce (ou un équivalent nginx/Traefik) reverse proxy HTTPS devant
+# RoleMaster, le cookie de session ne peut jamais être marqué "secure" et
+# circule en clair — à corriger avant toute mise en ligne publique.
+
+votredomaine.exemple {
+  reverse_proxy localhost:3003
+
+  # Nécessaire pour que Socket.io (WebSocket) traverse le proxy correctement.
+  # Caddy le gère nativement dès lors que reverse_proxy est utilisé — rien de
+  # plus à faire, contrairement à nginx qui exige des en-têtes Upgrade dédiés.
+}
