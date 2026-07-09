@@ -739,6 +739,25 @@ io.on('connection', (socket) => {
     socket.emit('adv:gm:state', await buildAdventureGmState(roleplayId));
   });
 
+  // Document texte déposé dans l'inventaire d'un personnage — le fichier est déjà en médiathèque
+  // (upload REST préalable via POST .../media/document), ceci ne fait qu'y attacher une référence.
+  socket.on('adv:gm:addInventoryDocument', async ({ roleplayId, characterId, mediaId, name }) => {
+    if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
+    if (!mediaId) return;
+    const character = await adv.addInventoryDocument(roleplayId, characterId, mediaId, name);
+    if (!character) return;
+    notifyAdventureCharacterUpdate(roleplayId, character);
+    socket.emit('adv:gm:state', await buildAdventureGmState(roleplayId));
+  });
+
+  socket.on('adv:gm:removeInventoryDocument', async ({ roleplayId, characterId, docId }) => {
+    if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
+    const character = await adv.removeInventoryDocument(roleplayId, characterId, docId);
+    if (!character) return;
+    notifyAdventureCharacterUpdate(roleplayId, character);
+    socket.emit('adv:gm:state', await buildAdventureGmState(roleplayId));
+  });
+
   socket.on('adv:gm:updateCharacterSkills', async ({ roleplayId, characterId, skills }) => {
     if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
     const character = await adv.updateCharacterSkillsById(roleplayId, characterId, skills);
@@ -787,10 +806,14 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('adv:gm:addJournalEntry', async ({ roleplayId, characterId, text }) => {
+  // `documentMediaId`/`documentName` facultatifs : le fichier est déjà en médiathèque (upload REST
+  // préalable via POST .../media/document) — une entrée peut porter un texte, un document, ou les
+  // deux, mais jamais ni l'un ni l'autre.
+  socket.on('adv:gm:addJournalEntry', async ({ roleplayId, characterId, text, documentMediaId, documentName }) => {
     if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
-    if (typeof text !== 'string' || !text.trim()) return;
-    const character = await adv.appendJournalEntry(roleplayId, characterId, text.trim().slice(0, 1000), 'gm');
+    const safeText = typeof text === 'string' ? text.trim().slice(0, 1000) : '';
+    if (!safeText && !documentMediaId) return;
+    const character = await adv.appendJournalEntry(roleplayId, characterId, safeText, 'gm', documentMediaId, documentName);
     if (!character) return;
     notifyAdventureCharacterUpdate(roleplayId, character);
     socket.emit('adv:gm:state', await buildAdventureGmState(roleplayId));

@@ -12,6 +12,9 @@ const MAP_MIME_EXT = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': 
 const MUSIC_MIME_EXT = { 'audio/mpeg': '.mp3', 'audio/mp3': '.mp3', 'audio/ogg': '.ogg', 'audio/wav': '.wav' };
 // PNG uniquement — les sprites profitent de la transparence pour s'incruster dans le décor.
 const SPRITE_MIME_EXT = { 'image/png': '.png' };
+// Documents texte déposés par le MJ dans le journal/inventaire d'un personnage (lus tels quels
+// côté client, pas de rendu HTML/markdown — texte brut uniquement).
+const DOCUMENT_MIME_EXT = { 'text/plain': '.txt' };
 
 function makeStorage(mimeExt) {
   return multer.diskStorage({
@@ -58,4 +61,10 @@ const uploadSprite = multer({
   limits: { fileSize: 3 * 1024 * 1024 }
 });
 
-module.exports = { uploadMap, uploadMusic, uploadToken, uploadSprite, UPLOAD_ROOT };
+const uploadDocument = multer({
+  storage: makeStorage(DOCUMENT_MIME_EXT),
+  fileFilter: makeFileFilter(DOCUMENT_MIME_EXT),
+  limits: { fileSize: 1 * 1024 * 1024 }
+});
+
+module.exports = { uploadMap, uploadMusic, uploadToken, uploadSprite, uploadDocument, UPLOAD_ROOT };

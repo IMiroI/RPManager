@@ -5,7 +5,7 @@ const express = require('express');
 const path = require('path');
 const { requireAuth } = require('./auth');
 const adv = require('./adventuresManager');
-const { uploadMap, uploadMusic, uploadToken, uploadSprite, UPLOAD_ROOT } = require('./uploadStorage');
+const { uploadMap, uploadMusic, uploadToken, uploadSprite, uploadDocument, UPLOAD_ROOT } = require('./uploadStorage');
 const adventureEngine = require('./adventureEngine');
 
 const router = express.Router();
@@ -145,6 +145,16 @@ router.post('/:id/media/music', requireAuth, handleUpload(uploadMusic.single('fi
 router.post('/:id/media/sprite', requireAuth, handleUpload(uploadSprite.single('file')), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Aucun fichier reçu' });
   const media = await adv.createMedia(req.params.id, req.session.userId, 'sprite', req.file);
+  if (!media) return res.status(404).json({ error: 'Introuvable' });
+  res.status(201).json(media);
+});
+
+// Document texte (.txt) déposé par le MJ, ensuite attaché à une entrée de journal ou à l'inventaire
+// d'un personnage — upload réservé au MJ (propriétaire), lecture ouverte à l'owner et aux membres
+// via la route /media/:mediaId/file déjà authentifiée.
+router.post('/:id/media/document', requireAuth, handleUpload(uploadDocument.single('file')), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Aucun fichier reçu' });
+  const media = await adv.createMedia(req.params.id, req.session.userId, 'document', req.file);
   if (!media) return res.status(404).json({ error: 'Introuvable' });
   res.status(201).json(media);
 });

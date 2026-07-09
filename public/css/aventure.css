@@ -276,6 +276,38 @@
 }
 .mp-autocomplete-item:hover { background: var(--surface); color: var(--gold-light); }
 
+/* ─── Documents texte déposés par le MJ (journal/inventaire), ouverts en popup ──── */
+.document-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  margin: 4px 6px 0 0;
+  background: rgba(217, 180, 91, 0.12);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  color: var(--gold-light);
+  cursor: pointer;
+  transition: border-color var(--transition), background var(--transition);
+}
+.document-chip:hover { border-color: var(--gold); background: rgba(217, 180, 91, 0.2); }
+
+.document-viewer-content {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  max-height: 60vh;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  margin: 0;
+}
+
 /* ─── Aperçu/upload de token (joueur ou PNJ) ────────────── */
 .token-upload-preview {
   width: 64px;

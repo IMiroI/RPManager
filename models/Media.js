@@ -31,7 +31,7 @@ const fogSchema = new mongoose.Schema({
 const mediaSchema = new mongoose.Schema({
   roleplay: { type: mongoose.Schema.Types.ObjectId, ref: 'Roleplay', required: true, index: true },
   owner: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  kind: { type: String, enum: ['map', 'music', 'token', 'sprite'], required: true },
+  kind: { type: String, enum: ['map', 'music', 'token', 'sprite', 'document'], required: true },
   originalName: { type: String, required: true },
   filename: { type: String, required: true },
   mimeType: { type: String, required: true },

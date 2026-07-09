@@ -254,6 +254,12 @@
           <textarea class="form-textarea" id="char-edit-inventory" rows="4"></textarea>
         </div>
         <div class="form-group">
+          <label class="form-label">📄 Documents dans l'inventaire</label>
+          <div id="char-edit-inventory-docs" style="margin-bottom:8px;"><p class="text-muted text-sm">Aucun document.</p></div>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('char-edit-inventory-doc-input').click()">+ Déposer un document (.txt)</button>
+          <input type="file" id="char-edit-inventory-doc-input" accept=".txt,text/plain" style="display:none;" onchange="uploadInventoryDocument(this.files[0])">
+        </div>
+        <div class="form-group">
           <div class="section-header" style="margin-bottom:10px;">
             <div><label class="form-label" style="margin:0;">Compétences</label></div>
             <button type="button" class="btn btn-secondary btn-sm" onclick="addCharEditSkill()">+ Ajouter</button>
@@ -263,6 +269,11 @@
         <div class="form-group">
           <label class="form-label">Ajouter une entrée de journal</label>
           <textarea class="form-textarea" id="char-edit-journal-entry" rows="2" placeholder="Événement, note pour le joueur..."></textarea>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('char-edit-journal-doc-input').click()">📄 Joindre un document (.txt)</button>
+            <input type="file" id="char-edit-journal-doc-input" accept=".txt,text/plain" style="display:none;" onchange="onJournalDocSelected(this.files[0])">
+            <span id="char-edit-journal-doc-label" class="text-muted text-sm"></span>
+          </div>
         </div>
       </div>
       <div class="modal-footer">
@@ -304,6 +315,17 @@
     </div>
   </div>
 
+  <div class="modal-overlay" id="document-viewer-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title" id="document-viewer-title">Document</h3>
+        <button class="modal-close" onclick="document.getElementById('document-viewer-modal').classList.remove('open')">✕</button>
+      </div>
+      <div class="modal-body">
+        <pre id="document-viewer-content" class="document-viewer-content"></pre>
+      </div>
+    </div>
+  </div>
 
   <div class="toast-container" id="toast-container"></div>
 
@@ -327,6 +349,12 @@
       // La médiathèque peut avoir changé (upload/suppression) depuis l'éditeur, dans un autre onglet —
       // on la rafraîchit à chaque état pour ne jamais afficher une liste de médias périmée.
       loadMedia();
+      // La fiche personnage ouverte n'est peuplée qu'à l'ouverture (openCharEditModal) — on
+      // rafraîchit juste la liste de documents d'inventaire pour refléter un ajout/retrait immédiat.
+      if (editingCharacterId && document.getElementById('char-edit-modal').classList.contains('open')) {
+        const c = (gmState.characters || []).find(x => x.id === editingCharacterId);
+        if (c) renderInventoryDocs(c.inventoryDocuments || []);
+      }
     });
 
     socket.on('adv:gm:diceResult', () => {}); // le résultat arrive aussi via adv:journal:entry (journal de groupe)
@@ -1355,8 +1383,11 @@
         </div>
       `).join('') : '<p class="text-muted text-sm">Aucune statistique définie pour cette aventure.</p>';
       document.getElementById('char-edit-inventory').value = (c.inventory || []).join('\n');
+      renderInventoryDocs(c.inventoryDocuments || []);
       renderCharEditSkills(c.skills || []);
       document.getElementById('char-edit-journal-entry').value = '';
+      selectedJournalDocFile = null;
+      document.getElementById('char-edit-journal-doc-label').textContent = '';
       document.getElementById('char-edit-modal').classList.add('open');
     }
 
@@ -1434,12 +1465,80 @@
       closeCharEditModal();
     }
 
-    function addJournalEntry() {
+    // ─── Documents texte (.txt) déposés par le MJ, dans le journal ou l'inventaire d'un personnage ───
+    let selectedJournalDocFile = null;
+
+    function onJournalDocSelected(file) {
+      selectedJournalDocFile = file || null;
+      document.getElementById('char-edit-journal-doc-label').textContent = file ? `📄 ${file.name}` : '';
+    }
+
+    async function uploadDocumentFile(file) {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch(`/api/adventures/${roleplayId}/media/document`, { method: 'POST', body: formData });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { showToast(data.error || 'Erreur lors de l\'upload du document', 'error'); return null; }
+      return data;
+    }
+
+    async function addJournalEntry() {
       const text = document.getElementById('char-edit-journal-entry').value.trim();
-      if (!text) return;
-      socket.emit('adv:gm:addJournalEntry', { roleplayId, characterId: editingCharacterId, text });
+      if (!text && !selectedJournalDocFile) return;
+
+      let documentMediaId = null, documentName = null;
+      if (selectedJournalDocFile) {
+        const media = await uploadDocumentFile(selectedJournalDocFile);
+        if (!media) return;
+        documentMediaId = media.id;
+        documentName = media.originalName;
+      }
+
+      socket.emit('adv:gm:addJournalEntry', { roleplayId, characterId: editingCharacterId, text, documentMediaId, documentName });
       document.getElementById('char-edit-journal-entry').value = '';
+      document.getElementById('char-edit-journal-doc-input').value = '';
+      onJournalDocSelected(null);
       showToast('Entrée de journal ajoutée', 'success');
+    }
+
+    function renderInventoryDocs(docs) {
+      const el = document.getElementById('char-edit-inventory-docs');
+      el.innerHTML = (docs && docs.length)
+        ? docs.map(d => `
+            <div class="document-chip" style="cursor:default;">
+              <span data-media-id="${d.mediaId}" data-name="${esc(d.name || 'Document')}" onclick="openDocumentViewerFromChip(this)" style="cursor:pointer;">📄 ${esc(d.name || 'Document')}</span>
+              <button type="button" class="skill-remove" style="margin-left:4px;" onclick="removeInventoryDocumentGm('${d.id}')" title="Retirer">✕</button>
+            </div>
+          `).join('')
+        : '<p class="text-muted text-sm">Aucun document.</p>';
+    }
+
+    async function uploadInventoryDocument(file) {
+      if (!file || !editingCharacterId) return;
+      const media = await uploadDocumentFile(file);
+      document.getElementById('char-edit-inventory-doc-input').value = '';
+      if (!media) return;
+      socket.emit('adv:gm:addInventoryDocument', { roleplayId, characterId: editingCharacterId, mediaId: media.id, name: media.originalName });
+    }
+
+    function removeInventoryDocumentGm(docId) {
+      socket.emit('adv:gm:removeInventoryDocument', { roleplayId, characterId: editingCharacterId, docId });
+    }
+
+    function openDocumentViewerFromChip(el) {
+      openDocumentViewer(el.dataset.mediaId, el.dataset.name);
+    }
+
+    async function openDocumentViewer(mediaId, name) {
+      document.getElementById('document-viewer-title').textContent = name || 'Document';
+      document.getElementById('document-viewer-content').textContent = 'Chargement...';
+      document.getElementById('document-viewer-modal').classList.add('open');
+      try {
+        const res = await fetch(`/api/adventures/${roleplayId}/media/${mediaId}/file`);
+        document.getElementById('document-viewer-content').textContent = res.ok ? await res.text() : 'Impossible de charger ce document.';
+      } catch {
+        document.getElementById('document-viewer-content').textContent = 'Impossible de charger ce document.';
+      }
     }
 
     function rollGmDice() {

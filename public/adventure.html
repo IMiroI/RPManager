@@ -412,6 +412,17 @@
     </div>
   </div>
 
+  <div class="modal-overlay" id="document-viewer-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title" id="document-viewer-title">Document</h3>
+        <button class="modal-close" onclick="closeModal('document-viewer-modal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <pre id="document-viewer-content" class="document-viewer-content"></pre>
+      </div>
+    </div>
+  </div>
 
   <div class="toast-container" id="toast-container"></div>
 
@@ -636,7 +647,7 @@
         </div>
       `).join('');
       renderSkillsQuick('char-detail-skills', character.skills);
-      renderInventory('char-detail-inventory', character.inventory);
+      renderInventory('char-detail-inventory', character.inventory, character.inventoryDocuments);
       renderJournal('char-detail-journal', character.journal);
       openModal('char-detail-modal');
     }
@@ -686,11 +697,15 @@
       }
     }
 
-    function renderInventory(containerId, inventory) {
+    function renderInventory(containerId, inventory, inventoryDocuments) {
       const el = document.getElementById(containerId);
-      el.innerHTML = (inventory && inventory.length)
-        ? inventory.map(i => `<div>🎒 ${esc(i)}</div>`).join('')
-        : '<p class="text-muted text-sm">Inventaire vide.</p>';
+      const itemsHtml = (inventory && inventory.length) ? inventory.map(i => `<div>🎒 ${esc(i)}</div>`).join('') : '';
+      // data-* plutôt qu'un argument inline dans onclick : un nom de fichier peut contenir des
+      // apostrophes/guillemets qui casseraient sinon l'attribut HTML ou la chaîne JS.
+      const docsHtml = (inventoryDocuments && inventoryDocuments.length)
+        ? inventoryDocuments.map(d => `<div class="document-chip" data-media-id="${d.mediaId}" data-name="${esc(d.name || 'Document')}" onclick="openDocumentViewerFromChip(this)">📄 ${esc(d.name || 'Document')}</div>`).join('')
+        : '';
+      el.innerHTML = (itemsHtml + docsHtml) || '<p class="text-muted text-sm">Inventaire vide.</p>';
     }
 
     function renderJournal(containerId, journal) {
@@ -699,10 +714,29 @@
         ? [...journal].reverse().map(j => `
             <div class="journal-entry">
               <div class="journal-entry-meta">${j.authorRole === 'gm' ? '🎲 MJ' : '🧑 Vous'} · ${new Date(j.createdAt).toLocaleString()}</div>
-              <div>${esc(j.text)}</div>
+              ${j.text ? `<div>${esc(j.text)}</div>` : ''}
+              ${j.documentMediaId ? `<div class="document-chip" data-media-id="${j.documentMediaId}" data-name="${esc(j.documentName || 'Document')}" onclick="openDocumentViewerFromChip(this)">📄 ${esc(j.documentName || 'Document')}</div>` : ''}
             </div>
           `).join('')
         : '<p class="text-muted text-sm">Aucune entrée de journal pour l\'instant.</p>';
+    }
+
+    function openDocumentViewerFromChip(el) {
+      openDocumentViewer(el.dataset.mediaId, el.dataset.name);
+    }
+
+    // Popup de lecture d'un document texte déposé par le MJ (journal ou inventaire) — récupéré via
+    // la route média authentifiée (jamais servi en clair), affiché tel quel dans une <pre>.
+    async function openDocumentViewer(mediaId, name) {
+      document.getElementById('document-viewer-title').textContent = name || 'Document';
+      document.getElementById('document-viewer-content').textContent = 'Chargement...';
+      openModal('document-viewer-modal');
+      try {
+        const res = await fetch(`/api/adventures/${adventure.id}/media/${mediaId}/file`);
+        document.getElementById('document-viewer-content').textContent = res.ok ? await res.text() : 'Impossible de charger ce document.';
+      } catch {
+        document.getElementById('document-viewer-content').textContent = 'Impossible de charger ce document.';
+      }
     }
 
     // ─── Séance en direct ─────────────────────────────
@@ -968,7 +1002,7 @@
         </div>
       `).join('');
       renderSkillsQuick('live-skills-list', character.skills, true, character.id);
-      renderInventory('live-inventory-display', character.inventory);
+      renderInventory('live-inventory-display', character.inventory, character.inventoryDocuments);
       renderJournal('live-journal', character.journal);
     }
 

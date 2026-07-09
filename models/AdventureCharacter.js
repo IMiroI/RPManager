@@ -5,9 +5,19 @@ const mongoose = require('mongoose');
 
 const journalEntrySchema = new mongoose.Schema({
   id: { type: String, required: true },
-  text: { type: String, required: true },
+  text: { type: String, default: '' },
   authorRole: { type: String, enum: ['player', 'gm'], required: true },
-  createdAt: { type: Date, default: Date.now }
+  createdAt: { type: Date, default: Date.now },
+  // Document texte (.txt) facultatif attaché par le MJ (ex: une lettre trouvée) — voir models/Media.js
+  // kind:'document'. Une entrée a toujours au moins l'un des deux : text ou documentMediaId.
+  documentMediaId: { type: String, default: null },
+  documentName: { type: String, default: '' }
+}, { _id: false });
+
+const inventoryDocumentSchema = new mongoose.Schema({
+  id: { type: String, required: true },
+  mediaId: { type: String, required: true },
+  name: { type: String, default: 'Document' }
 }, { _id: false });
 
 const skillSchema = new mongoose.Schema({
@@ -40,6 +50,9 @@ const adventureCharacterSchema = new mongoose.Schema({
   // Modificateurs facultatifs par statistique (même clés que `stats`) — voir Roleplay.statModifiersEnabled.
   statModifiers: { type: mongoose.Schema.Types.Mixed, default: {} },
   inventory: { type: [String], default: [] },
+  // Documents texte déposés par le MJ dans l'inventaire (distincts des objets en texte libre
+  // ci-dessus) — ouverts en popup côté joueur via models/Media.js kind:'document'.
+  inventoryDocuments: { type: [inventoryDocumentSchema], default: [] },
   journal: { type: [journalEntrySchema], default: [] },
   messages: { type: [privateMessageSchema], default: [] }
 // minimize:false — sans ça, Mongoose supprime silencieusement `stats` du document

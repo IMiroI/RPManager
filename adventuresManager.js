@@ -417,11 +417,34 @@ async function updateCharacterSkillsById(roleplayId, characterId, skills) {
   return doc.toJSON();
 }
 
-async function appendJournalEntry(roleplayId, characterId, text, authorRole) {
+// `documentMediaId`/`documentName` facultatifs (voir models/Media.js kind:'document') — une entrée
+// de journal MJ peut porter un document texte attaché, avec ou sans texte d'accompagnement.
+async function appendJournalEntry(roleplayId, characterId, text, authorRole, documentMediaId, documentName) {
   const doc = await AdventureCharacter.findOne({ _id: characterId, roleplay: roleplayId }).catch(() => null);
   if (!doc) return null;
-  const entry = { id: newId(), text, authorRole, createdAt: new Date() };
+  const entry = {
+    id: newId(), text: text || '', authorRole, createdAt: new Date(),
+    documentMediaId: documentMediaId || null,
+    documentName: documentMediaId ? (documentName || 'Document').slice(0, 120) : ''
+  };
   doc.journal.push(entry);
+  await doc.save();
+  return doc.toJSON();
+}
+
+// ─── Documents texte de l'inventaire (distincts des objets en texte libre) ──────
+async function addInventoryDocument(roleplayId, characterId, mediaId, name) {
+  const doc = await AdventureCharacter.findOne({ _id: characterId, roleplay: roleplayId }).catch(() => null);
+  if (!doc) return null;
+  doc.inventoryDocuments.push({ id: newId(), mediaId, name: (name || 'Document').slice(0, 120) });
+  await doc.save();
+  return doc.toJSON();
+}
+
+async function removeInventoryDocument(roleplayId, characterId, docId) {
+  const doc = await AdventureCharacter.findOne({ _id: characterId, roleplay: roleplayId }).catch(() => null);
+  if (!doc) return null;
+  doc.inventoryDocuments = doc.inventoryDocuments.filter(d => d.id !== docId);
   await doc.save();
   return doc.toJSON();
 }
@@ -741,7 +764,7 @@ module.exports = {
   createMedia, listMedia, getMediaFile, deleteMedia,
   listCharactersForPlayer, createCharacter, updateCharacterProfile, listCharactersAcrossAdventures,
   listCharacters, updateCharacterStatsById, updateCharacterInventoryById, updateCharacterSkillsById, appendJournalEntry, getCharacterById,
-  findCharacterByPlayerUsername,
+  findCharacterByPlayerUsername, addInventoryDocument, removeInventoryDocument,
   appendPrivateMessage,
   createCharacterToken, createNpcToken, listPartyMembers, listNpcRoster, getMapTokenPositions, setTokenPosition,
   setTokenRotation, removeTokenPosition, getNpcById, setGridSize,
