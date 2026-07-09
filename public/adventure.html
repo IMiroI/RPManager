@@ -808,6 +808,7 @@
         showToast(`🎲 ${result.statLabel} (${result.statValue}) : ${result.percentile}${mod}`, 'info');
       });
       socket.on('adv:journal:entry', (entry) => appendJournalEntry(entry));
+      socket.on('adv:player:gmMessage', ({ message }) => showToast(`💬 Message privé du MJ : ${message.text}`, 'info'));
       socket.on('adv:player:connectedCount', ({ count }) => updateConnectedBadge(count));
 
       socket.on('adv:token:rotated', ({ characterId, rotation }) => {
@@ -989,7 +990,7 @@
     }
 
     function formatJournalEntry(e) {
-      if (e.kind === 'chat') return (e.mp ? '<strong class="text-muted">MP</strong> - ' : '') + esc(e.text);
+      if (e.kind === 'chat') return (e.mp ? '<span class="badge badge-gold mp-badge">🔒 Privé</span>' : '') + esc(e.text);
       if (e.kind === 'skill') return `🎲 <strong>${esc(e.skillName)}</strong> : 1d100=${e.percentile} · 1d${e.diceSides}=<strong>${e.skillRoll}</strong>`;
       if (e.kind === 'stat') return `🎲 <strong>${esc(e.statLabel)}</strong> (${e.statValue}) : 1d100=${e.percentile}${e.statModifier ? ` ${e.statModifier > 0 ? '+' : ''}${e.statModifier} = <strong>${e.total}</strong>` : ` = <strong>${e.percentile}</strong>`}`;
       if (e.kind === 'dice') return `🎲 ${e.count}d${e.sides} → ${e.rolls.join(', ')} = <strong>${e.total}</strong>`;

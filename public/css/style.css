@@ -590,6 +590,8 @@ h4 { font-size: 1rem; }
 .badge-success { background: rgba(99, 189, 140, 0.18); color: #8fd4ae; }
 .badge-danger { background: rgba(224, 101, 78, 0.18); color: #f0a08f; }
 
+.mp-badge { margin-right: 8px; vertical-align: middle; }
+
 /* ─── Scrollbar ──────────────────────────────── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: var(--surface); }

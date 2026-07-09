@@ -272,6 +272,33 @@ async function sendPrivateJournalMessage(roleplayId, characterId, text) {
   return { character, msg };
 }
 
+// Message privé du MJ vers un joueur précis (symétrique de sendPrivateJournalMessage ci-dessus) —
+// même persistance (AdventureCharacter.messages, from:'gm') et même entrée de journal 'private',
+// visible uniquement du MJ et du joueur ciblé.
+async function sendGmPrivateMessage(roleplayId, characterId, text) {
+  const character = await adv.appendPrivateMessage(roleplayId, characterId, text, 'gm');
+  if (!character) return null;
+  const msg = character.messages[character.messages.length - 1];
+  const seance = adventureEngine.getSeance(roleplayId);
+
+  if (seance) {
+    const entry = adventureEngine.addJournalEntry(seance, {
+      kind: 'chat', visibility: 'private', counterpartCharacterId: characterId, mp: true, text,
+      authorName: 'MJ', authorIcon: '🎭', authorTokenMediaId: null
+    });
+    io.to(`adv-gm:${roleplayId}`).emit('adv:journal:entry', entry);
+    for (const [socketId, info] of seance.connectedPlayers) {
+      if (info.characters?.some(c => c.id === characterId)) {
+        io.to(socketId).emit('adv:journal:entry', entry);
+        io.to(socketId).emit('adv:player:gmMessage', { characterId, message: msg });
+        break;
+      }
+    }
+  }
+
+  return { character, msg };
+}
+
 // ─── Socket.io ───────────────────────────────────────
 io.on('connection', (socket) => {
   let sessionCode = null;
@@ -804,6 +831,21 @@ io.on('connection', (socket) => {
       if (mpMatch) {
         const mpText = mpMatch[1].trim().slice(0, 500);
         if (mpText) await sendPrivateJournalMessage(roleplayId, characterId, mpText);
+        return;
+      }
+    }
+
+    // "/mp NomDuJoueur message" depuis le chat global côté MJ : envoie un message privé à ce
+    // joueur (résolu par pseudo de compte, pas nom de personnage — un joueur peut renommer son
+    // personnage sans casser la commande) au lieu de le diffuser à tout le groupe.
+    if (advRole === 'gm') {
+      const mpMatch = /^\/mp\s+(\S+)\s+(.+)$/i.exec(safeText);
+      if (mpMatch) {
+        const [, targetUsername, rawMpText] = mpMatch;
+        const target = await adv.findCharacterByPlayerUsername(roleplayId, targetUsername);
+        if (!target) { socket.emit('adv:error', `Aucun personnage trouvé pour le joueur "${targetUsername}".`); return; }
+        const mpText = rawMpText.trim().slice(0, 500);
+        if (mpText) await sendGmPrivateMessage(roleplayId, target.id, mpText);
         return;
       }
     }

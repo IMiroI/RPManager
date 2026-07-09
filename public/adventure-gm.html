@@ -158,8 +158,9 @@
           <button class="btn btn-secondary btn-sm" onclick="rollGmDice()">🎲 Lancer</button>
         </div>
         <div id="journal-feed" class="journal-feed"></div>
-        <div class="journal-chat-row">
-          <input type="text" class="form-input" id="journal-chat-input" placeholder="Écrire au groupe..." onkeydown="if(event.key==='Enter') sendGroupChat()">
+        <div class="journal-chat-row" style="position:relative;">
+          <div id="mp-autocomplete" class="mp-autocomplete" style="display:none;"></div>
+          <input type="text" class="form-input" id="journal-chat-input" placeholder="Écrire au groupe... (/mp NomDuJoueur message = privé)" autocomplete="off" oninput="updateMpAutocomplete()" onkeydown="if(event.key==='Enter') sendGroupChat(); if(event.key==='Escape') hideMpAutocomplete();">
           <button class="btn btn-gold btn-sm" onclick="sendGroupChat()">➤</button>
         </div>
       </div>
@@ -1460,7 +1461,7 @@
     }
 
     function formatJournalEntry(e) {
-      if (e.kind === 'chat') return (e.mp ? '<strong class="text-muted">MP</strong> - ' : '') + esc(e.text);
+      if (e.kind === 'chat') return (e.mp ? '<span class="badge badge-gold mp-badge">🔒 Privé</span>' : '') + esc(e.text);
       if (e.kind === 'skill') return `🎲 <strong>${esc(e.skillName)}</strong> : 1d100=${e.percentile} · 1d${e.diceSides}=<strong>${e.skillRoll}</strong>${e.visibility === 'gm' ? ' <span class="text-muted text-sm">(caché des joueurs)</span>' : ''}`;
       if (e.kind === 'stat') return `🎲 <strong>${esc(e.statLabel)}</strong> (${e.statValue}) : 1d100=${e.percentile}${e.statModifier ? ` ${e.statModifier > 0 ? '+' : ''}${e.statModifier} = <strong>${e.total}</strong>` : ` = <strong>${e.percentile}</strong>`} <span class="text-muted text-sm">${e.visibility === 'gm' ? '(caché des joueurs)' : '(privé)'}</span>`;
       if (e.kind === 'dice') return `🎲 ${e.count}d${e.sides} → ${e.rolls.join(', ')} = <strong>${e.total}</strong>`;
@@ -1496,12 +1497,46 @@
     }
 
     function sendGroupChat() {
+      hideMpAutocomplete();
       const input = document.getElementById('journal-chat-input');
       const text = input.value.trim();
       if (!text) return;
       socket.emit('adv:chat:send', { roleplayId, text });
       input.value = '';
     }
+
+    // ─── Autocomplétion "/mp NomDuJoueur " : propose les pseudos des joueurs ayant un personnage
+    // sur cette aventure, pendant que le MJ tape le nom cible (avant l'espace qui commence le message).
+    function mpTargetUsernames() {
+      const seen = new Set();
+      (gmState.characters || []).forEach(c => { if (c.playerUsername) seen.add(c.playerUsername); });
+      return [...seen];
+    }
+
+    function hideMpAutocomplete() {
+      document.getElementById('mp-autocomplete').style.display = 'none';
+    }
+
+    function updateMpAutocomplete() {
+      const input = document.getElementById('journal-chat-input');
+      const dropdown = document.getElementById('mp-autocomplete');
+      const match = /^\/mp\s+(\S*)$/i.exec(input.value);
+      if (!match) { hideMpAutocomplete(); return; }
+      const partial = match[1].toLowerCase();
+      const matches = mpTargetUsernames().filter(u => u.toLowerCase().startsWith(partial));
+      if (matches.length === 0) { hideMpAutocomplete(); return; }
+      dropdown.innerHTML = matches.map(u => `<div class="mp-autocomplete-item" onclick="selectMpTarget('${esc(u)}')">💬 ${esc(u)}</div>`).join('');
+      dropdown.style.display = '';
+    }
+
+    function selectMpTarget(username) {
+      const input = document.getElementById('journal-chat-input');
+      input.value = `/mp ${username} `;
+      hideMpAutocomplete();
+      input.focus();
+    }
+
+    document.getElementById('journal-chat-input').addEventListener('blur', () => setTimeout(hideMpAutocomplete, 150));
 
     function esc(s) {
       return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');

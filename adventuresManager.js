@@ -432,6 +432,15 @@ async function getCharacterById(roleplayId, characterId) {
   return doc.toJSON();
 }
 
+// Résout un pseudo de compte joueur (pas un nom de personnage) vers son premier personnage sur
+// cette aventure — utilisé par la commande "/mp NomDuJoueur message" du MJ dans le journal global.
+async function findCharacterByPlayerUsername(roleplayId, username) {
+  if (!username) return null;
+  const docs = await AdventureCharacter.find({ roleplay: roleplayId }).populate('player', 'username').catch(() => []);
+  const match = docs.find(d => d.player?.username?.toLowerCase() === username.toLowerCase());
+  return match ? match.toJSON() : null;
+}
+
 // ─── Messagerie privée (persistée, source de vérité = Mongo) ────
 async function appendPrivateMessage(roleplayId, characterId, text, from) {
   const doc = await AdventureCharacter.findOne({ _id: characterId, roleplay: roleplayId }).catch(() => null);
@@ -732,6 +741,7 @@ module.exports = {
   createMedia, listMedia, getMediaFile, deleteMedia,
   listCharactersForPlayer, createCharacter, updateCharacterProfile, listCharactersAcrossAdventures,
   listCharacters, updateCharacterStatsById, updateCharacterInventoryById, updateCharacterSkillsById, appendJournalEntry, getCharacterById,
+  findCharacterByPlayerUsername,
   appendPrivateMessage,
   createCharacterToken, createNpcToken, listPartyMembers, listNpcRoster, getMapTokenPositions, setTokenPosition,
   setTokenRotation, removeTokenPosition, getNpcById, setGridSize,

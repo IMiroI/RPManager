@@ -256,6 +256,26 @@
 .journal-chat-row { display: flex; gap: 6px; }
 .journal-chat-row input { flex: 1; }
 
+/* ─── Autocomplétion "/mp NomDuJoueur" (chat de groupe MJ) ──── */
+.mp-autocomplete {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  right: 46px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+  z-index: 5;
+}
+.mp-autocomplete-item {
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.mp-autocomplete-item:hover { background: var(--surface); color: var(--gold-light); }
+
 /* ─── Aperçu/upload de token (joueur ou PNJ) ────────────── */
 .token-upload-preview {
   width: 64px;
