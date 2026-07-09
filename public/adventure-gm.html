@@ -338,7 +338,8 @@
     });
 
     socket.on('adv:stat:result', (result) => {
-      showToast(`🎲 ${result.characterName} — ${result.statLabel} (${result.statValue}) : ${result.percentile}`, 'info');
+      const mod = result.statModifier ? ` ${result.statModifier > 0 ? '+' : ''}${result.statModifier} = ${result.total}` : '';
+      showToast(`🎲 ${result.characterName} — ${result.statLabel} (${result.statValue}) : ${result.percentile}${mod}`, 'info');
     });
 
     socket.on('adv:journal:entry', (entry) => appendJournalEntry(entry));
@@ -1068,11 +1069,13 @@
       document.getElementById('npc-detail-subtitle').textContent = [n.role, n.disposition].filter(Boolean).join(' · ') || 'Aucune information.';
       document.getElementById('npc-detail-backstory').textContent = n.backstory || 'Aucune biographie renseignée.';
       const statDefs = gmState.roleplay?.statDefinitions || [];
+      const modifiersOn = !!gmState.roleplay?.statModifiersEnabled;
       document.getElementById('npc-detail-stats').innerHTML = statDefs.length ? statDefs.map(def => `
         <div class="stat-input-group">
           <label class="stat-label">${esc(def.label)}</label>
           <div style="display:flex;gap:4px;align-items:center;">
             <input type="number" class="stat-input" data-stat="${def.key}" value="${n.stats?.[def.key] ?? 0}" min="0" max="99">
+            ${modifiersOn ? `<input type="number" class="stat-modifier-input" data-stat-modifier="${def.key}" value="${n.statModifiers?.[def.key] ?? 0}" title="Modificateur" placeholder="+0">` : ''}
             <button type="button" class="btn btn-gold btn-sm" onclick="rollNpcDetailStat('${def.key}')" title="Lancer 1d100">🎲</button>
           </div>
         </div>
@@ -1133,7 +1136,11 @@
       document.querySelectorAll('#npc-detail-stats [data-stat]').forEach(input => {
         stats[input.dataset.stat] = parseInt(input.value) || 0;
       });
-      socket.emit('adv:gm:updateNpcStats', { roleplayId, npcId: viewingNpcId, stats });
+      const statModifiers = {};
+      document.querySelectorAll('#npc-detail-stats [data-stat-modifier]').forEach(input => {
+        statModifiers[input.dataset.statModifier] = parseInt(input.value) || 0;
+      });
+      socket.emit('adv:gm:updateNpcStats', { roleplayId, npcId: viewingNpcId, stats, statModifiers });
       showToast('Statistiques du PNJ mises à jour', 'success');
     }
 
@@ -1335,11 +1342,13 @@
       editingCharacterId = characterId;
       document.getElementById('char-edit-title').textContent = c.name;
       const statDefs = gmState.roleplay?.statDefinitions || [];
+      const modifiersOn = !!gmState.roleplay?.statModifiersEnabled;
       document.getElementById('char-edit-stats').innerHTML = statDefs.length ? statDefs.map(def => `
         <div class="stat-input-group">
           <label class="stat-label">${esc(def.label)}</label>
           <div style="display:flex;gap:4px;align-items:center;">
             <input type="number" class="stat-input" data-stat="${def.key}" value="${c.stats[def.key] ?? 0}" min="0">
+            ${modifiersOn ? `<input type="number" class="stat-modifier-input" data-stat-modifier="${def.key}" value="${c.statModifiers?.[def.key] ?? 0}" title="Modificateur" placeholder="+0">` : ''}
             <button type="button" class="btn btn-gold btn-sm" onclick="rollCharEditStat('${def.key}')" title="Lancer 1d100">🎲</button>
           </div>
         </div>
@@ -1411,9 +1420,13 @@
       document.querySelectorAll('#char-edit-stats [data-stat]').forEach(input => {
         stats[input.dataset.stat] = parseInt(input.value) || 0;
       });
+      const statModifiers = {};
+      document.querySelectorAll('#char-edit-stats [data-stat-modifier]').forEach(input => {
+        statModifiers[input.dataset.statModifier] = parseInt(input.value) || 0;
+      });
       const inventory = document.getElementById('char-edit-inventory').value.split('\n').map(s => s.trim()).filter(Boolean);
       const skills = collectCharEditSkills();
-      socket.emit('adv:gm:updateCharacterStats', { roleplayId, characterId: editingCharacterId, stats });
+      socket.emit('adv:gm:updateCharacterStats', { roleplayId, characterId: editingCharacterId, stats, statModifiers });
       socket.emit('adv:gm:updateCharacterInventory', { roleplayId, characterId: editingCharacterId, inventory });
       socket.emit('adv:gm:updateCharacterSkills', { roleplayId, characterId: editingCharacterId, skills });
       showToast('Personnage mis à jour', 'success');
@@ -1449,7 +1462,7 @@
     function formatJournalEntry(e) {
       if (e.kind === 'chat') return (e.mp ? '<strong class="text-muted">MP</strong> - ' : '') + esc(e.text);
       if (e.kind === 'skill') return `🎲 <strong>${esc(e.skillName)}</strong> : 1d100=${e.percentile} · 1d${e.diceSides}=<strong>${e.skillRoll}</strong>${e.visibility === 'gm' ? ' <span class="text-muted text-sm">(caché des joueurs)</span>' : ''}`;
-      if (e.kind === 'stat') return `🎲 <strong>${esc(e.statLabel)}</strong> (${e.statValue}) : 1d100=<strong>${e.percentile}</strong> <span class="text-muted text-sm">${e.visibility === 'gm' ? '(caché des joueurs)' : '(privé)'}</span>`;
+      if (e.kind === 'stat') return `🎲 <strong>${esc(e.statLabel)}</strong> (${e.statValue}) : 1d100=${e.percentile}${e.statModifier ? ` ${e.statModifier > 0 ? '+' : ''}${e.statModifier} = <strong>${e.total}</strong>` : ` = <strong>${e.percentile}</strong>`} <span class="text-muted text-sm">${e.visibility === 'gm' ? '(caché des joueurs)' : '(privé)'}</span>`;
       if (e.kind === 'dice') return `🎲 ${e.count}d${e.sides} → ${e.rolls.join(', ')} = <strong>${e.total}</strong>`;
       return '';
     }

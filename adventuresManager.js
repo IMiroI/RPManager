@@ -50,7 +50,7 @@ async function resolveByInviteCode(code, userId) {
   }
 
   const rp = doc.toJSON();
-  return { id: rp.id, name: rp.name, description: rp.description, themeColor: rp.themeColor, pointBudget: rp.pointBudget, statDefinitions: rp.statDefinitions };
+  return { id: rp.id, name: rp.name, description: rp.description, themeColor: rp.themeColor, pointBudget: rp.pointBudget, statDefinitions: rp.statDefinitions, statModifiersEnabled: rp.statModifiersEnabled };
 }
 
 // ─── Chapitres ───────────────────────────────────────
@@ -135,6 +135,7 @@ async function createNpc(roleplayId, ownerId, data) {
     disposition: data.disposition || 'neutre',
     backstory: data.backstory || '',
     stats: data.stats || {},
+    statModifiers: data.statModifiers || {},
     visibleSkills: data.visibleSkills || [],
     hiddenSkills: data.hiddenSkills || [],
     tokenColor: sanitizeTokenColor(data.tokenColor),
@@ -157,6 +158,7 @@ async function updateNpc(roleplayId, ownerId, npcId, data) {
   if (data.disposition !== undefined) npc.disposition = data.disposition;
   if (data.backstory !== undefined) npc.backstory = data.backstory;
   if (data.stats !== undefined) npc.stats = data.stats;
+  if (data.statModifiers !== undefined) npc.statModifiers = data.statModifiers;
   if (data.visibleSkills !== undefined) npc.visibleSkills = data.visibleSkills;
   if (data.hiddenSkills !== undefined) npc.hiddenSkills = data.hiddenSkills;
   if (data.tokenColor !== undefined) npc.tokenColor = sanitizeTokenColor(data.tokenColor);
@@ -167,16 +169,20 @@ async function updateNpc(roleplayId, ownerId, npcId, data) {
 }
 
 // Mise à jour rapide des statistiques d'un PNJ en pleine séance (fiche détail MJ) — mêmes bornes
-// que les personnages joueurs (0-99), restreinte aux clés définies pour cette aventure.
-async function updateNpcStatsById(roleplayId, ownerId, npcId, stats) {
+// que les personnages joueurs (0-99), restreinte aux clés définies pour cette aventure. Les
+// modificateurs (facultatifs, -99 à 99) suivent le même appel — `statModifiers` peut être omis
+// sans toucher aux valeurs déjà enregistrées.
+async function updateNpcStatsById(roleplayId, ownerId, npcId, stats, statModifiers) {
   const doc = await getOwnedAdventure(roleplayId, ownerId);
   if (!doc) return null;
   const npc = doc.npcs.find(n => n.id === npcId);
   if (!npc) return null;
   const keys = doc.statDefinitions.map(d => d.key);
   if (!npc.stats) npc.stats = {};
+  if (!npc.statModifiers) npc.statModifiers = {};
   for (const key of keys) {
     if (stats?.[key] !== undefined) npc.stats[key] = Math.min(99, Math.max(0, parseInt(stats[key]) || 0));
+    if (statModifiers?.[key] !== undefined) npc.statModifiers[key] = Math.min(99, Math.max(-99, parseInt(statModifiers[key]) || 0));
   }
   doc.markModified('npcs');
   await doc.save();
@@ -222,7 +228,8 @@ async function convertNpcToCharacter(roleplayId, ownerId, npcId, playerId) {
     ko: !!npc.ko,
     backstory: npc.backstory || '',
     skills: mergedSkills,
-    stats: npc.stats || {}
+    stats: npc.stats || {},
+    statModifiers: npc.statModifiers || {}
   });
 
   doc.npcs.splice(npcIndex, 1);
@@ -377,16 +384,19 @@ async function listCharacters(roleplayId, ownerId) {
   });
 }
 
-async function updateCharacterStatsById(roleplayId, characterId, stats) {
+async function updateCharacterStatsById(roleplayId, characterId, stats, statModifiers) {
   const doc = await AdventureCharacter.findOne({ _id: characterId, roleplay: roleplayId }).catch(() => null);
   if (!doc) return null;
   const rp = await Roleplay.findById(roleplayId).select('statDefinitions').catch(() => null);
   const keys = rp ? rp.statDefinitions.map(d => d.key) : Object.keys(stats || {});
   if (!doc.stats) doc.stats = {};
+  if (!doc.statModifiers) doc.statModifiers = {};
   for (const key of keys) {
     if (stats[key] !== undefined) doc.stats[key] = Math.min(99, Math.max(0, parseInt(stats[key]) || 0));
+    if (statModifiers?.[key] !== undefined) doc.statModifiers[key] = Math.min(99, Math.max(-99, parseInt(statModifiers[key]) || 0));
   }
   doc.markModified('stats');
+  doc.markModified('statModifiers');
   await doc.save();
   return doc.toJSON();
 }
@@ -683,8 +693,15 @@ async function syncStatDefinitions(roleplayId, oldDefs, newDefs) {
     let changed = false;
     doc.npcs.forEach(npc => {
       if (!npc.stats) npc.stats = {};
-      for (const key of added) { if (npc.stats[key] === undefined) { npc.stats[key] = 1; changed = true; } }
-      for (const key of removed) { if (npc.stats[key] !== undefined) { delete npc.stats[key]; changed = true; } }
+      if (!npc.statModifiers) npc.statModifiers = {};
+      for (const key of added) {
+        if (npc.stats[key] === undefined) { npc.stats[key] = 1; changed = true; }
+        if (npc.statModifiers[key] === undefined) { npc.statModifiers[key] = 0; changed = true; }
+      }
+      for (const key of removed) {
+        if (npc.stats[key] !== undefined) { delete npc.stats[key]; changed = true; }
+        if (npc.statModifiers[key] !== undefined) { delete npc.statModifiers[key]; changed = true; }
+      }
     });
     if (changed) { doc.markModified('npcs'); await doc.save(); }
   }
@@ -693,9 +710,16 @@ async function syncStatDefinitions(roleplayId, oldDefs, newDefs) {
   for (const character of characters) {
     let changed = false;
     if (!character.stats) character.stats = {};
-    for (const key of added) { if (character.stats[key] === undefined) { character.stats[key] = 1; changed = true; } }
-    for (const key of removed) { if (character.stats[key] !== undefined) { delete character.stats[key]; changed = true; } }
-    if (changed) { character.markModified('stats'); await character.save(); }
+    if (!character.statModifiers) character.statModifiers = {};
+    for (const key of added) {
+      if (character.stats[key] === undefined) { character.stats[key] = 1; changed = true; }
+      if (character.statModifiers[key] === undefined) { character.statModifiers[key] = 0; changed = true; }
+    }
+    for (const key of removed) {
+      if (character.stats[key] !== undefined) { delete character.stats[key]; changed = true; }
+      if (character.statModifiers[key] !== undefined) { delete character.statModifiers[key]; changed = true; }
+    }
+    if (changed) { character.markModified('stats'); character.markModified('statModifiers'); await character.save(); }
   }
 }
 

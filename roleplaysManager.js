@@ -94,7 +94,8 @@ async function createRoleplay(data, ownerId) {
     npcs: data.npcs || [],
     chapters: data.chapters || [],
     pointBudget: data.pointBudget || 30,
-    statDefinitions: data.statDefinitions !== undefined ? sanitizeStatDefinitions(data.statDefinitions) : undefined
+    statDefinitions: data.statDefinitions !== undefined ? sanitizeStatDefinitions(data.statDefinitions) : undefined,
+    statModifiersEnabled: !!data.statModifiersEnabled
   });
   return doc.toJSON();
 }
@@ -114,6 +115,7 @@ async function updateRoleplay(id, data, ownerId) {
   if (data.chapters !== undefined) doc.chapters = data.chapters;
   if (data.pointBudget !== undefined) doc.pointBudget = data.pointBudget;
   if (data.statDefinitions !== undefined) doc.statDefinitions = sanitizeStatDefinitions(data.statDefinitions);
+  if (data.statModifiersEnabled !== undefined) doc.statModifiersEnabled = !!data.statModifiersEnabled;
 
   await doc.save();
   return doc.toJSON();

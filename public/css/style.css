@@ -663,6 +663,23 @@ h4 { font-size: 1rem; }
 }
 .stat-input:focus { outline: none; border-color: var(--accent); }
 
+.stat-input-row { display: flex; align-items: center; gap: 6px; }
+.stat-input-row .stat-input { flex: 1; min-width: 0; }
+.stat-modifier-input {
+  width: 52px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--gold-light);
+  font-size: 0.85rem;
+  font-weight: 700;
+  padding: 8px 4px;
+  text-align: center;
+  transition: border-color var(--transition);
+}
+.stat-modifier-input:focus { outline: none; border-color: var(--accent); }
+
 /* ─── Character List (editor) ────────────────── */
 .character-item {
   display: flex;

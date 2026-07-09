@@ -37,6 +37,8 @@ const adventureCharacterSchema = new mongoose.Schema({
   skills: { type: [skillSchema], default: [] },
   // Statistiques libres : clés définies par le MJ (roleplay.statDefinitions), valeurs numériques.
   stats: { type: mongoose.Schema.Types.Mixed, default: {} },
+  // Modificateurs facultatifs par statistique (même clés que `stats`) — voir Roleplay.statModifiersEnabled.
+  statModifiers: { type: mongoose.Schema.Types.Mixed, default: {} },
   inventory: { type: [String], default: [] },
   journal: { type: [journalEntrySchema], default: [] },
   messages: { type: [privateMessageSchema], default: [] }

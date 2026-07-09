@@ -420,6 +420,12 @@
   margin-top: 4px;
 }
 
+.stat-modifier-badge {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--gold-light);
+}
+
 /* Skills in player sheet */
 .skills-list { display: flex; flex-direction: column; gap: 10px; }
 

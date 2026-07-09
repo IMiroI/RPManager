@@ -212,7 +212,7 @@ async function buildAdventureGmState(roleplayId) {
   const tokenPositions = seance?.nowShowing ? await adv.getMapTokenPositions(roleplayId, seance.nowShowing.mediaId) : [];
   const fog = seance?.nowShowing ? await adv.getFog(roleplayId, seance.nowShowing.mediaId) : null;
   return {
-    roleplay: roleplayDoc ? { id: roleplayDoc._id.toString(), name: roleplayDoc.name, themeColor: roleplayDoc.themeColor, statDefinitions: roleplayDoc.statDefinitions, gridSize: roleplayDoc.gridSize } : null,
+    roleplay: roleplayDoc ? { id: roleplayDoc._id.toString(), name: roleplayDoc.name, themeColor: roleplayDoc.themeColor, statDefinitions: roleplayDoc.statDefinitions, statModifiersEnabled: roleplayDoc.statModifiersEnabled, gridSize: roleplayDoc.gridSize } : null,
     chapters: roleplayDoc?.chapters || [],
     npcs: roleplayDoc?.npcs || [],
     // Membres ayant résolu le lien d'invitation (avec ou sans personnage) — sert au MJ pour
@@ -687,9 +687,9 @@ io.on('connection', (socket) => {
     io.to(`adv-gm:${roleplayId}`).emit('adv:gm:state', await buildAdventureGmState(roleplayId));
   });
 
-  socket.on('adv:gm:updateCharacterStats', async ({ roleplayId, characterId, stats }) => {
+  socket.on('adv:gm:updateCharacterStats', async ({ roleplayId, characterId, stats, statModifiers }) => {
     if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
-    const character = await adv.updateCharacterStatsById(roleplayId, characterId, stats || {});
+    const character = await adv.updateCharacterStatsById(roleplayId, characterId, stats || {}, statModifiers);
     if (!character) return;
     notifyAdventureCharacterUpdate(roleplayId, character);
     socket.emit('adv:gm:state', await buildAdventureGmState(roleplayId));
@@ -697,9 +697,9 @@ io.on('connection', (socket) => {
 
   // Statistiques d'un PNJ modifiables en pleine séance depuis sa fiche détail (lecture réservée au
   // MJ — les PNJ n'ont pas de fiche côté joueur, rien à diffuser aux joueurs ici).
-  socket.on('adv:gm:updateNpcStats', async ({ roleplayId, npcId, stats }) => {
+  socket.on('adv:gm:updateNpcStats', async ({ roleplayId, npcId, stats, statModifiers }) => {
     if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
-    const npc = await adv.updateNpcStatsById(roleplayId, getAdvUserId(), npcId, stats || {});
+    const npc = await adv.updateNpcStatsById(roleplayId, getAdvUserId(), npcId, stats || {}, statModifiers);
     if (!npc) return;
     socket.emit('adv:gm:state', await buildAdventureGmState(roleplayId));
   });
@@ -980,9 +980,10 @@ io.on('connection', (socket) => {
     const isGm = advRole === 'gm' && advRoleplayId === roleplayId;
     const isOwner = advRole === 'player' && advRoleplayId === roleplayId && advCharacterIds.has(characterId);
 
-    const roleplayDoc = await Roleplay.findById(roleplayId).select('statDefinitions').catch(() => null);
+    const roleplayDoc = await Roleplay.findById(roleplayId).select('statDefinitions statModifiersEnabled').catch(() => null);
     const statDef = roleplayDoc?.statDefinitions.find(d => d.key === statKey);
     if (!statDef) return;
+    const modifiersEnabled = !!roleplayDoc.statModifiersEnabled;
 
     // PNJ : réservé au MJ, jamais visible des joueurs (même confidentialité que la fiche PNJ elle-même).
     if (kind === 'npc') {
@@ -991,8 +992,10 @@ io.on('connection', (socket) => {
       if (!npc) return;
 
       const statValue = npc.stats?.[statKey] ?? 0;
+      const statModifier = modifiersEnabled ? (npc.statModifiers?.[statKey] ?? 0) : 0;
       const percentile = adventureEngine.rollDice(1, 100).rolls[0];
-      const result = { characterId, kind: 'npc', characterName: npc.name, statKey, statLabel: statDef.label, statValue, percentile };
+      const total = percentile + statModifier;
+      const result = { characterId, kind: 'npc', characterName: npc.name, statKey, statLabel: statDef.label, statValue, statModifier, percentile, total };
       socket.emit('adv:stat:result', result);
 
       const seanceNpc = adventureEngine.getSeance(roleplayId);
@@ -1000,7 +1003,7 @@ io.on('connection', (socket) => {
         const entry = adventureEngine.addJournalEntry(seanceNpc, {
           kind: 'stat', visibility: 'gm',
           authorName: npc.name, authorIcon: npc.icon || '', authorTokenMediaId: npc.tokenMediaId || null,
-          statLabel: statDef.label, statValue, percentile
+          statLabel: statDef.label, statValue, statModifier, percentile, total
         });
         io.to(`adv-gm:${roleplayId}`).emit('adv:journal:entry', entry);
       }
@@ -1013,8 +1016,10 @@ io.on('connection', (socket) => {
     if (!character) return;
 
     const statValue = character.stats?.[statKey] ?? 0;
+    const statModifier = modifiersEnabled ? (character.statModifiers?.[statKey] ?? 0) : 0;
     const percentile = adventureEngine.rollDice(1, 100).rolls[0];
-    const result = { characterId, kind: 'character', characterName: character.name, statKey, statLabel: statDef.label, statValue, percentile };
+    const total = percentile + statModifier;
+    const result = { characterId, kind: 'character', characterName: character.name, statKey, statLabel: statDef.label, statValue, statModifier, percentile, total };
 
     socket.emit('adv:stat:result', result);
     const seance = adventureEngine.getSeance(roleplayId);
@@ -1030,7 +1035,7 @@ io.on('connection', (socket) => {
       const entry = adventureEngine.addJournalEntry(seance, {
         kind: 'stat', visibility: 'private', counterpartCharacterId: characterId,
         authorName: character.name, authorIcon: character.icon || '', authorTokenMediaId: character.tokenMediaId || null,
-        statLabel: statDef.label, statValue, percentile
+        statLabel: statDef.label, statValue, statModifier, percentile, total
       });
       io.to(`adv-gm:${roleplayId}`).emit('adv:journal:entry', entry);
       for (const [socketId, info] of seance.connectedPlayers) {

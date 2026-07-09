@@ -632,7 +632,7 @@
       document.getElementById('char-detail-stats').innerHTML = statDefs.map(def => `
         <div class="stat-display">
           <div class="stat-label">${esc(def.label)}</div>
-          <div class="stat-value">${character.stats[def.key] ?? '—'}</div>
+          <div class="stat-value">${character.stats[def.key] ?? '—'}${statModifierBadge(character.statModifiers?.[def.key])}</div>
         </div>
       `).join('');
       renderSkillsQuick('char-detail-skills', character.skills);
@@ -804,7 +804,8 @@
         showToast(`🎲 ${result.skillName} : ${result.percentile} / d${result.diceSides}=${result.skillRoll}`, 'info');
       });
       socket.on('adv:stat:result', (result) => {
-        showToast(`🎲 ${result.statLabel} (${result.statValue}) : ${result.percentile}`, 'info');
+        const mod = result.statModifier ? ` ${result.statModifier > 0 ? '+' : ''}${result.statModifier} = ${result.total}` : '';
+        showToast(`🎲 ${result.statLabel} (${result.statValue}) : ${result.percentile}${mod}`, 'info');
       });
       socket.on('adv:journal:entry', (entry) => appendJournalEntry(entry));
       socket.on('adv:player:connectedCount', ({ count }) => updateConnectedBadge(count));
@@ -961,7 +962,7 @@
       document.getElementById('live-stats-display').innerHTML = statDefs.map(def => `
         <div class="stat-display">
           <div class="stat-label">${esc(def.label)}</div>
-          <div class="stat-value">${character.stats[def.key] ?? '—'}</div>
+          <div class="stat-value">${character.stats[def.key] ?? '—'}${statModifierBadge(character.statModifiers?.[def.key])}</div>
           <button type="button" class="btn btn-gold btn-sm stat-roll-btn" onclick="rollStatCheck('${def.key}')" title="Lancer 1d100">🎲</button>
         </div>
       `).join('');
@@ -990,7 +991,7 @@
     function formatJournalEntry(e) {
       if (e.kind === 'chat') return (e.mp ? '<strong class="text-muted">MP</strong> - ' : '') + esc(e.text);
       if (e.kind === 'skill') return `🎲 <strong>${esc(e.skillName)}</strong> : 1d100=${e.percentile} · 1d${e.diceSides}=<strong>${e.skillRoll}</strong>`;
-      if (e.kind === 'stat') return `🎲 <strong>${esc(e.statLabel)}</strong> (${e.statValue}) : 1d100=<strong>${e.percentile}</strong>`;
+      if (e.kind === 'stat') return `🎲 <strong>${esc(e.statLabel)}</strong> (${e.statValue}) : 1d100=${e.percentile}${e.statModifier ? ` ${e.statModifier > 0 ? '+' : ''}${e.statModifier} = <strong>${e.total}</strong>` : ` = <strong>${e.percentile}</strong>`}`;
       if (e.kind === 'dice') return `🎲 ${e.count}d${e.sides} → ${e.rolls.join(', ')} = <strong>${e.total}</strong>`;
       return '';
     }
@@ -1548,6 +1549,12 @@
     // ─── Utils ───────────────────────────────────────
     function esc(s) {
       return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+    // Badge de modificateur de stat (ex: "+2") — vide si le MJ n'a pas activé les modificateurs
+    // pour cette aventure, ou si la stat n'en a pas.
+    function statModifierBadge(mod) {
+      if (!adventure?.statModifiersEnabled || !mod) return '';
+      return ` <span class="stat-modifier-badge">${mod > 0 ? '+' : ''}${mod}</span>`;
     }
     function showToast(msg, type = 'info') {
       const c = document.getElementById('toast-container');

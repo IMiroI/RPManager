@@ -162,6 +162,16 @@
           <div id="stat-definitions-list"></div>
         </div>
 
+        <div class="form-group">
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+            <input type="checkbox" id="rp-stat-modifiers-enabled" onchange="statModifiersEnabled = this.checked">
+            <span>
+              <span class="form-label" style="margin:0;">Activer les modificateurs de statistiques</span>
+              <p class="text-sm text-muted" style="margin-top:2px;">Facultatif. Ajoute un champ modificateur (ex: +1, +2, -1) à côté de chaque statistique des personnages et des PNJ, pour compléter la fiche.</p>
+            </span>
+          </label>
+        </div>
+
         <div class="form-group" id="invite-link-group" style="display:none;">
           <label class="form-label">Lien d'invitation permanent</label>
           <div class="invite-link-box">
@@ -408,6 +418,7 @@
     let npcs = [];
     let chapters = [];
     let statDefinitions = DEFAULT_STAT_DEFINITIONS.map(d => ({ ...d }));
+    let statModifiersEnabled = false;
     let editingNpcId = null;
     let editingChapterId = null;
 
@@ -438,6 +449,8 @@
       document.getElementById('rp-max-players').value = rp.maxPlayers || 10;
       document.getElementById('rp-point-budget').value = rp.pointBudget || 30;
       document.getElementById('theme-preview').style.background = rp.themeColor || '#8B6914';
+      statModifiersEnabled = !!rp.statModifiersEnabled;
+      document.getElementById('rp-stat-modifiers-enabled').checked = statModifiersEnabled;
       statDefinitions = (rp.statDefinitions && rp.statDefinitions.length) ? rp.statDefinitions.map(d => ({ ...d })) : [];
       renderStatDefinitions();
       unlockTabs();
@@ -539,7 +552,8 @@
         themeColor: document.getElementById('rp-color').value,
         maxPlayers: parseInt(document.getElementById('rp-max-players').value) || 10,
         pointBudget: parseInt(document.getElementById('rp-point-budget').value) || 0,
-        statDefinitions
+        statDefinitions,
+        statModifiersEnabled
       };
 
       try {
@@ -619,7 +633,7 @@
         : '';
       document.getElementById('npc-token-color').value = n.tokenColor || '#c9a227';
       document.getElementById('npc-token-preview').style.setProperty('--token-color', n.tokenColor || '#c9a227');
-      renderNpcStatsGrid(n.stats || {});
+      renderNpcStatsGrid(n.stats || {}, n.statModifiers || {});
       renderNpcSkillsList('visible', n.visibleSkills || []);
       renderNpcSkillsList('hidden', n.hiddenSkills || []);
       document.getElementById('npc-modal').classList.add('open');
@@ -633,7 +647,7 @@
 
     function closeNpcModal() { document.getElementById('npc-modal').classList.remove('open'); }
 
-    function renderNpcStatsGrid(values) {
+    function renderNpcStatsGrid(values, modifiers) {
       const grid = document.getElementById('npc-stats-grid');
       if (statDefinitions.length === 0) {
         grid.innerHTML = '<p class="text-muted text-sm">Aucune statistique définie pour cette aventure (voir l\'onglet Informations).</p>';
@@ -642,7 +656,10 @@
       grid.innerHTML = statDefinitions.map(def => `
         <div class="stat-input-group">
           <label class="stat-label">${esc(def.label)}</label>
-          <input type="number" class="stat-input npc-stat-input" data-stat="${def.key}" value="${values?.[def.key] ?? 5}" min="0">
+          <div class="stat-input-row">
+            <input type="number" class="stat-input npc-stat-input" data-stat="${def.key}" value="${values?.[def.key] ?? 5}" min="0">
+            ${statModifiersEnabled ? `<input type="number" class="stat-modifier-input npc-stat-modifier-input" data-stat="${def.key}" value="${modifiers?.[def.key] ?? 0}" title="Modificateur" placeholder="+0">` : ''}
+          </div>
         </div>
       `).join('');
     }
@@ -655,6 +672,14 @@
       return stats;
     }
 
+    function collectNpcStatModifiers() {
+      const modifiers = {};
+      document.querySelectorAll('.npc-stat-modifier-input').forEach(input => {
+        modifiers[input.dataset.stat] = parseInt(input.value) || 0;
+      });
+      return modifiers;
+    }
+
     function resetNpcForm() {
       document.getElementById('npc-name').value = '';
       document.getElementById('npc-role').value = '';
@@ -664,7 +689,7 @@
       document.getElementById('npc-token-preview').innerHTML = '';
       document.getElementById('npc-token-color').value = '#c9a227';
       document.getElementById('npc-token-preview').style.setProperty('--token-color', '#c9a227');
-      renderNpcStatsGrid({});
+      renderNpcStatsGrid({}, {});
       renderNpcSkillsList('visible', []);
       renderNpcSkillsList('hidden', []);
     }
@@ -736,6 +761,7 @@
         disposition: document.getElementById('npc-disposition').value,
         backstory: document.getElementById('npc-backstory').value.trim(),
         stats: collectNpcStats(),
+        ...(statModifiersEnabled ? { statModifiers: collectNpcStatModifiers() } : {}),
         visibleSkills: collectNpcSkills('visible'),
         hiddenSkills: collectNpcSkills('hidden'),
         tokenColor: document.getElementById('npc-token-color').value

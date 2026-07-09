@@ -37,6 +37,10 @@ const roleplaySchema = new mongoose.Schema({
   npcs: { type: [mongoose.Schema.Types.Mixed], default: [] },
   chapters: { type: [mongoose.Schema.Types.Mixed], default: [] },
   pointBudget: { type: Number, default: 30 },
+  // Modificateurs de stats (+1/+2/-1...) : facultatifs, activés par le MJ. Quand désactivés, le
+  // champ existe toujours sur les PNJ/personnages (non affiché/édité) mais n'est jamais pris en
+  // compte dans les jets — activer/désactiver ne perd donc jamais les valeurs déjà saisies.
+  statModifiersEnabled: { type: Boolean, default: false },
   // Nombre de colonnes de la grille tactique (carrée) affichée sur la carte — ajustable par le MJ via un curseur.
   gridSize: { type: Number, default: 20 },
   statDefinitions: { type: [statDefinitionSchema], default: () => DEFAULT_STAT_DEFINITIONS.map(d => ({ ...d })) },
