@@ -210,6 +210,21 @@
 }
 .grid-size-control input[type="range"] { width: 90px; }
 
+/* ─── Filtre + liste déroulante (PNJ/cartes/musiques à cocher pour un chapitre) ──── */
+.picklist-filter {
+  padding: 7px 12px;
+  font-size: 0.85rem;
+  margin-bottom: 6px;
+}
+.picklist-scroll {
+  max-height: 172px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.picklist-empty {
+  color: var(--text-muted);
+}
+
 /* ─── Journal de groupe (chat + jets de dé/compétences, visible du MJ et des joueurs) ──── */
 .journal-feed {
   display: flex;

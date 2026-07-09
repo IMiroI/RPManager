@@ -347,7 +347,8 @@
         </div>
         <div class="form-group">
           <label class="form-label">PNJ impliqués</label>
-          <div id="chapter-npcs-list" class="text-sm text-muted">Aucun PNJ créé pour l'instant.</div>
+          <input type="text" class="form-input picklist-filter" id="chapter-npcs-filter" placeholder="Filtrer par nom..." oninput="filterChapterNpcs()">
+          <div id="chapter-npcs-list" class="picklist-scroll text-sm text-muted">Aucun PNJ créé pour l'instant.</div>
         </div>
         <div class="form-group">
           <label class="form-label">🗺 Cartes du chapitre</label>
@@ -355,7 +356,8 @@
             <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('chapter-map-input').click()">+ Uploader une carte</button>
             <input type="file" id="chapter-map-input" accept="image/png,image/jpeg,image/webp" style="display:none;" onchange="uploadChapterMedia('map', this.files[0])">
           </div>
-          <div id="chapter-maps-checklist" class="text-sm text-muted">Aucune carte disponible pour l'instant.</div>
+          <input type="text" class="form-input picklist-filter" id="chapter-maps-filter" placeholder="Filtrer par nom..." oninput="filterChapterMedia()">
+          <div id="chapter-maps-checklist" class="picklist-scroll text-sm text-muted">Aucune carte disponible pour l'instant.</div>
         </div>
         <div class="form-group">
           <label class="form-label">🎵 Musiques du chapitre</label>
@@ -363,7 +365,8 @@
             <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('chapter-music-input').click()">+ Uploader une musique</button>
             <input type="file" id="chapter-music-input" accept="audio/mpeg,audio/mp3,audio/ogg,audio/wav" style="display:none;" onchange="uploadChapterMedia('music', this.files[0])">
           </div>
-          <div id="chapter-music-checklist" class="text-sm text-muted">Aucune musique disponible pour l'instant.</div>
+          <input type="text" class="form-input picklist-filter" id="chapter-music-filter" placeholder="Filtrer par nom..." oninput="filterChapterMedia()">
+          <div id="chapter-music-checklist" class="picklist-scroll text-sm text-muted">Aucune musique disponible pour l'instant.</div>
         </div>
       </div>
       <div class="modal-footer">
@@ -802,38 +805,74 @@
       `).join('');
     }
 
+    // Sélection conservée à part du DOM : le filtre par nom masque des lignes sans
+    // perdre leur état coché (une checkbox filtrée hors de vue disparaît du DOM).
+    let chapterNpcSelected = new Set();
+    let chapterMediaSelected = new Set();
+
     function renderChapterNpcCheckboxes(selectedIds) {
+      chapterNpcSelected = new Set(selectedIds);
+      document.getElementById('chapter-npcs-filter').value = '';
+      filterChapterNpcs();
+    }
+
+    function filterChapterNpcs() {
       const container = document.getElementById('chapter-npcs-list');
       if (npcs.length === 0) {
         container.innerHTML = 'Aucun PNJ créé pour l\'instant.';
         return;
       }
-      container.innerHTML = npcs.map(n => `
-        <label style="display:flex;align-items:center;gap:8px;margin-bottom:6px;cursor:pointer;">
-          <input type="checkbox" value="${n.id}" ${selectedIds.includes(n.id) ? 'checked' : ''}>
-          <span>${esc(n.name)}</span>
-        </label>
-      `).join('');
+      const query = document.getElementById('chapter-npcs-filter').value.trim().toLowerCase();
+      const filtered = query ? npcs.filter(n => n.name.toLowerCase().includes(query)) : npcs;
+      container.innerHTML = filtered.length
+        ? filtered.map(n => `
+            <label style="display:flex;align-items:center;gap:8px;margin-bottom:6px;cursor:pointer;">
+              <input type="checkbox" value="${n.id}" onchange="toggleChapterNpc('${n.id}', this.checked)" ${chapterNpcSelected.has(n.id) ? 'checked' : ''}>
+              <span>${esc(n.name)}</span>
+            </label>
+          `).join('')
+        : '<div class="picklist-empty">Aucun PNJ ne correspond à ce filtre.</div>';
+    }
+
+    function toggleChapterNpc(id, checked) {
+      if (checked) chapterNpcSelected.add(id); else chapterNpcSelected.delete(id);
     }
 
     function renderChapterMediaCheckboxes(selectedIds) {
-      const maps = mediaList.filter(m => m.kind === 'map');
-      const music = mediaList.filter(m => m.kind === 'music');
-      document.getElementById('chapter-maps-checklist').innerHTML = maps.length
-        ? maps.map(m => chapterMediaCheckboxRow(m, selectedIds)).join('')
-        : 'Aucune carte disponible — uploadez-en une ci-dessus.';
-      document.getElementById('chapter-music-checklist').innerHTML = music.length
-        ? music.map(m => chapterMediaCheckboxRow(m, selectedIds)).join('')
-        : 'Aucune musique disponible — uploadez-en une ci-dessus.';
+      chapterMediaSelected = new Set(selectedIds);
+      document.getElementById('chapter-maps-filter').value = '';
+      document.getElementById('chapter-music-filter').value = '';
+      filterChapterMedia();
     }
 
-    function chapterMediaCheckboxRow(m, selectedIds) {
+    function filterChapterMedia() {
+      const allMaps = mediaList.filter(m => m.kind === 'map');
+      const allMusic = mediaList.filter(m => m.kind === 'music');
+      const mapsQuery = document.getElementById('chapter-maps-filter').value.trim().toLowerCase();
+      const musicQuery = document.getElementById('chapter-music-filter').value.trim().toLowerCase();
+      const maps = mapsQuery ? allMaps.filter(m => m.originalName.toLowerCase().includes(mapsQuery)) : allMaps;
+      const music = musicQuery ? allMusic.filter(m => m.originalName.toLowerCase().includes(musicQuery)) : allMusic;
+
+      document.getElementById('chapter-maps-checklist').innerHTML = !allMaps.length
+        ? 'Aucune carte disponible — uploadez-en une ci-dessus.'
+        : maps.length ? maps.map(m => chapterMediaCheckboxRow(m)).join('') : '<div class="picklist-empty">Aucune carte ne correspond à ce filtre.</div>';
+
+      document.getElementById('chapter-music-checklist').innerHTML = !allMusic.length
+        ? 'Aucune musique disponible — uploadez-en une ci-dessus.'
+        : music.length ? music.map(m => chapterMediaCheckboxRow(m)).join('') : '<div class="picklist-empty">Aucune musique ne correspond à ce filtre.</div>';
+    }
+
+    function chapterMediaCheckboxRow(m) {
       return `
         <label style="display:flex;align-items:center;gap:8px;margin-bottom:6px;cursor:pointer;">
-          <input type="checkbox" class="chapter-media-checkbox" value="${m.id}" ${selectedIds.includes(m.id) ? 'checked' : ''}>
+          <input type="checkbox" class="chapter-media-checkbox" value="${m.id}" onchange="toggleChapterMedia('${m.id}', this.checked)" ${chapterMediaSelected.has(m.id) ? 'checked' : ''}>
           <span>${m.kind === 'map' ? '🗺' : '🎵'} ${esc(m.originalName)}</span>
         </label>
       `;
+    }
+
+    function toggleChapterMedia(id, checked) {
+      if (checked) chapterMediaSelected.add(id); else chapterMediaSelected.delete(id);
     }
 
     // Upload direct depuis le chapitre : ajoute le fichier à la médiathèque puis le coche
@@ -846,10 +885,9 @@
         const res = await fetch(`/api/adventures/${roleplaysId}/media/${kind}`, { method: 'POST', body: formData });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) { showToast(data.error || 'Erreur lors de l\'upload', 'error'); return; }
-        const selectedIds = [...document.querySelectorAll('.chapter-media-checkbox:checked')].map(i => i.value);
-        selectedIds.push(data.id);
+        chapterMediaSelected.add(data.id);
         await loadMedia();
-        renderChapterMediaCheckboxes(selectedIds);
+        filterChapterMedia();
         showToast(`${kind === 'map' ? 'Carte' : 'Musique'} ajoutée et liée à ce chapitre !`, 'success');
       } catch {
         showToast('Impossible de contacter le serveur.', 'error');
@@ -883,8 +921,8 @@
     async function saveChapter() {
       const title = document.getElementById('chapter-title').value.trim();
       if (!title) { showToast('Le titre est requis', 'error'); return; }
-      const npcIds = [...document.querySelectorAll('#chapter-npcs-list input[type="checkbox"]:checked')].map(i => i.value);
-      const mediaIds = [...document.querySelectorAll('.chapter-media-checkbox:checked')].map(i => i.value);
+      const npcIds = [...chapterNpcSelected];
+      const mediaIds = [...chapterMediaSelected];
 
       const payload = { title, gmNotes: document.getElementById('chapter-notes').value.trim(), npcIds, mediaIds };
       const url = editingChapterId ? `/api/adventures/${roleplaysId}/chapters/${editingChapterId}` : `/api/adventures/${roleplaysId}/chapters`;
