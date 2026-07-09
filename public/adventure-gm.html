@@ -287,6 +287,14 @@
           <label class="form-label">Compétences</label>
           <div id="npc-detail-skills-list"></div>
         </div>
+        <div class="form-group" style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);">
+          <label class="form-label">Attribuer ce PNJ à un joueur</label>
+          <div class="text-muted text-sm" style="margin-bottom:8px;">Le PNJ devient un personnage jouable par le joueur choisi (ses stats et compétences sont reprises telles quelles) et disparaît de la liste des PNJ.</div>
+          <div style="display:flex;gap:8px;">
+            <select class="form-input" id="npc-detail-assign-select" style="flex:1;"></select>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="assignNpcToPlayer()">Attribuer</button>
+          </div>
+        </div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-ghost" onclick="closeNpcDetailModal()">Fermer</button>
@@ -322,7 +330,7 @@
 
     socket.on('adv:gm:diceResult', () => {}); // le résultat arrive aussi via adv:journal:entry (journal de groupe)
 
-    socket.on('adv:gm:playerJoined', ({ names }) => showToast(`${(names || []).join(', ')} a rejoint la séance`, 'success'));
+    socket.on('adv:gm:playerJoined', ({ names }) => showToast(`${names && names.length ? names.join(', ') : 'Un joueur sans personnage'} a rejoint la séance`, 'success'));
     socket.on('adv:gm:playerLeft', () => showToast('Un joueur s\'est déconnecté', 'info'));
 
     socket.on('adv:skill:result', (result) => {
@@ -1084,7 +1092,24 @@
           </div>
         </div>
       `).join('') : '<p class="text-muted text-sm">Aucune compétence.</p>';
+      const members = gmState.members || [];
+      const assignSelect = document.getElementById('npc-detail-assign-select');
+      assignSelect.innerHTML = members.length
+        ? members.map(m => `<option value="${m.id}">${esc(m.username)}</option>`).join('')
+        : '<option value="">Aucun joueur n\'a encore rejoint cette aventure</option>';
       document.getElementById('npc-detail-modal').classList.add('open');
+    }
+
+    function assignNpcToPlayer() {
+      if (!viewingNpcId) return;
+      const select = document.getElementById('npc-detail-assign-select');
+      const playerId = select.value;
+      if (!playerId) return;
+      const playerName = select.options[select.selectedIndex].textContent;
+      const npc = (gmState.npcs || []).find(x => x.id === viewingNpcId);
+      if (!confirm(`Attribuer "${npc?.name || 'ce PNJ'}" à ${playerName} ? Le PNJ deviendra un personnage jouable par ce joueur et disparaîtra de la liste des PNJ.`)) return;
+      socket.emit('adv:gm:convertNpcToCharacter', { roleplayId, npcId: viewingNpcId, playerId });
+      closeNpcDetailModal();
     }
 
     function closeNpcDetailModal() {

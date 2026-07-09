@@ -25,11 +25,15 @@ async function getOwnedAdventure(roleplayId, ownerId) {
   return doc;
 }
 
-// Propriétaire OU joueur ayant un personnage sur cette aventure
+// Propriétaire, OU membre de l'aventure (a résolu le lien d'invitation, avec ou sans personnage —
+// un joueur peut désormais rejoindre une séance avant même d'en avoir créé un), OU joueur ayant au
+// moins un personnage (filet de sécurité pour d'anciens comptes ajoutés avant l'introduction de
+// `members`).
 async function isOwnerOrMember(roleplayId, userId) {
-  const rp = await Roleplay.findOne({ _id: roleplayId, type: 'aventure' }).select('owner').catch(() => null);
+  const rp = await Roleplay.findOne({ _id: roleplayId, type: 'aventure' }).select('owner members').catch(() => null);
   if (!rp) return false;
   if (rp.owner.toString() === userId.toString()) return true;
+  if (rp.members.some(m => m.toString() === userId.toString())) return true;
   const character = await AdventureCharacter.exists({ roleplay: roleplayId, player: userId });
   return !!character;
 }
@@ -187,6 +191,46 @@ async function deleteNpc(roleplayId, ownerId, npcId) {
   if (doc.npcs.length === before) return false;
   await doc.save();
   return true;
+}
+
+// Convertit un PNJ existant en personnage jouable par un joueur (ex: un allié rencontré en jeu
+// rejoint le groupe). Le PNJ disparaît de la liste MJ ; ses stats/compétences/apparence sont
+// reprises telles quelles pour le nouveau personnage. Les compétences visibles ET cachées sont
+// fusionnées (elles n'ont plus de raison de rester cachées d'un joueur qui joue désormais ce
+// personnage lui-même). Les positions de token existantes sur les cartes sont retirées plutôt que
+// migrées — le joueur replace simplement son nouveau personnage, plus simple et plus sûr qu'une
+// migration entre collections.
+async function convertNpcToCharacter(roleplayId, ownerId, npcId, playerId) {
+  const doc = await getOwnedAdventure(roleplayId, ownerId);
+  if (!doc) return null;
+  const npcIndex = doc.npcs.findIndex(n => n.id === npcId);
+  if (npcIndex === -1) return null;
+  const npc = doc.npcs[npcIndex];
+
+  const isMember = doc.owner.toString() === playerId.toString() || doc.members.some(m => m.toString() === playerId.toString());
+  if (!isMember) return { error: 'not_member' };
+
+  const mergedSkills = sanitizeSkills([...(npc.visibleSkills || []), ...(npc.hiddenSkills || [])]);
+
+  const character = await AdventureCharacter.create({
+    roleplay: roleplayId,
+    player: playerId,
+    name: npc.name,
+    icon: npc.icon || '',
+    tokenMediaId: npc.tokenMediaId || null,
+    tokenColor: sanitizeTokenColor(npc.tokenColor),
+    ko: !!npc.ko,
+    backstory: npc.backstory || '',
+    skills: mergedSkills,
+    stats: npc.stats || {}
+  });
+
+  doc.npcs.splice(npcIndex, 1);
+  doc.markModified('npcs');
+  await doc.save();
+  await Media.updateMany({ roleplay: roleplayId, kind: 'map' }, { $pull: { tokenPositions: { characterId: npcId } } });
+
+  return { character: character.toJSON(), npcId, npcName: npc.name };
 }
 
 // ─── Médias ──────────────────────────────────────────
@@ -660,7 +704,7 @@ module.exports = {
   isOwnerOrMember,
   resolveByInviteCode,
   listChapters, createChapter, updateChapter, deleteChapter, setCurrentChapter,
-  listNpcs, createNpc, updateNpc, updateNpcStatsById, deleteNpc,
+  listNpcs, createNpc, updateNpc, updateNpcStatsById, deleteNpc, convertNpcToCharacter,
   createMedia, listMedia, getMediaFile, deleteMedia,
   listCharactersForPlayer, createCharacter, updateCharacterProfile, listCharactersAcrossAdventures,
   listCharacters, updateCharacterStatsById, updateCharacterInventoryById, updateCharacterSkillsById, appendJournalEntry, getCharacterById,

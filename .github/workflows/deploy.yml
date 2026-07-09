@@ -56,3 +56,40 @@ jobs:
             cd /opt/vgames-suite
             docker compose -f docker-compose.prod.yml pull rolemaster
             docker compose -f docker-compose.prod.yml up -d rolemaster
+
+  notify-discord:
+    needs: deploy
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Discord notification
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          COMMITS_JSON: ${{ toJson(github.event.commits) }}
+          COMPARE_URL: ${{ github.event.compare }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          DESCRIPTION=$(echo "$COMMITS_JSON" | jq -r '
+            [.[] | "• " + (.message | split("\n")[0]) + "  — [`" + .id[0:7] + "`](" + .url + ") par *" + .author.name + "*"]
+            | join("\n")
+          ')
+
+          # Discord limite la description d'un embed à 4096 caractères
+          DESCRIPTION=$(echo "$DESCRIPTION" | cut -c1-4000)
+
+          PAYLOAD=$(jq -n \
+            --arg title "🚀 RoleMaster mis à jour sur main" \
+            --arg desc "$DESCRIPTION" \
+            --arg url "$COMPARE_URL" \
+            --arg footer "Déployé par $ACTOR" \
+            '{
+              embeds: [{
+                title: $title,
+                description: $desc,
+                url: $url,
+                color: 5793266,
+                footer: { text: $footer }
+              }]
+            }')
+
+          curl -sS -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_WEBHOOK_URL"

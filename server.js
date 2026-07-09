@@ -206,6 +206,7 @@ app.get('/adventure-gm/:id', (req, res) => res.sendFile(path.join(__dirname, 'pu
 // ─── Aventure — helpers d'état temps réel ─────────────
 async function buildAdventureGmState(roleplayId) {
   const roleplayDoc = await Roleplay.findById(roleplayId);
+  if (roleplayDoc) await roleplayDoc.populate('members', 'username');
   const seance = adventureEngine.getSeance(roleplayId);
   const characters = await AdventureCharacter.find({ roleplay: roleplayId }).populate('player', 'username');
   const tokenPositions = seance?.nowShowing ? await adv.getMapTokenPositions(roleplayId, seance.nowShowing.mediaId) : [];
@@ -214,6 +215,9 @@ async function buildAdventureGmState(roleplayId) {
     roleplay: roleplayDoc ? { id: roleplayDoc._id.toString(), name: roleplayDoc.name, themeColor: roleplayDoc.themeColor, statDefinitions: roleplayDoc.statDefinitions, gridSize: roleplayDoc.gridSize } : null,
     chapters: roleplayDoc?.chapters || [],
     npcs: roleplayDoc?.npcs || [],
+    // Membres ayant résolu le lien d'invitation (avec ou sans personnage) — sert au MJ pour
+    // attribuer un PNJ à l'un d'eux.
+    members: roleplayDoc ? roleplayDoc.members.map(m => ({ id: m._id.toString(), username: m.username })) : [],
     isLive: !!seance,
     connectedPlayers: seance ? [...seance.connectedPlayers.values()] : [],
     nowShowing: seance?.nowShowing || null,
@@ -733,6 +737,29 @@ io.on('connection', (socket) => {
     io.to(`adv-gm:${roleplayId}`).emit('adv:gm:state', await buildAdventureGmState(roleplayId));
   });
 
+  // Attribue un PNJ à un joueur : le PNJ devient un personnage jouable par lui (ex: un allié
+  // rencontré en jeu rejoint le groupe). Le joueur ciblé doit être membre de l'aventure (avoir
+  // résolu le lien d'invitation) — avec ou sans personnage déjà créé.
+  socket.on('adv:gm:convertNpcToCharacter', async ({ roleplayId, npcId, playerId }) => {
+    if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
+    const result = await adv.convertNpcToCharacter(roleplayId, getAdvUserId(), npcId, playerId);
+    if (!result || result.error) return;
+    const { character, npcId: removedNpcId, npcName } = result;
+
+    io.to(`adv-gm:${roleplayId}`).emit('adv:gm:state', await buildAdventureGmState(roleplayId));
+    io.to(`adv-gm:${roleplayId}`).to(`adv-players:${roleplayId}`).emit('adv:token:removed', { characterId: removedNpcId, kind: 'npc' });
+
+    const seance = adventureEngine.getSeance(roleplayId);
+    if (seance) {
+      for (const [socketId, info] of seance.connectedPlayers) {
+        if (info.userId === playerId) {
+          io.to(socketId).emit('adv:player:npcAssigned', { character, npcName });
+          break;
+        }
+      }
+    }
+  });
+
   socket.on('adv:gm:addJournalEntry', async ({ roleplayId, characterId, text }) => {
     if (advRole !== 'gm' || advRoleplayId !== roleplayId) return;
     if (typeof text !== 'string' || !text.trim()) return;
@@ -796,11 +823,12 @@ io.on('connection', (socket) => {
   // ─── Joueur ──────────────────────────────────────────
   // Un joueur peut avoir plusieurs personnages sur une même aventure et les jouer simultanément :
   // un seul join charge la liste complète, le client choisit ensuite lequel anime/parle/lance.
+  // Un joueur peut rejoindre la séance sans encore avoir de personnage — utile la première fois
+  // (il choisit ensuite d'en créer un, ou attend que le MJ lui en attribue un via un PNJ).
   socket.on('adv:player:join', async ({ roleplayId }) => {
     const userId = getAdvUserId();
     if (!userId) return socket.emit('adv:error', 'Non authentifié');
     const characters = await adv.listCharactersForPlayer(roleplayId, userId);
-    if (!characters.length) return socket.emit('adv:error', 'Aucun personnage sur cette aventure');
     const seance = adventureEngine.getSeance(roleplayId);
     if (!seance) return socket.emit('adv:error', 'Aucune séance en cours');
 
@@ -1017,8 +1045,13 @@ io.on('connection', (socket) => {
     const userId = getAdvUserId();
     if (!userId) return;
     const characters = await adv.listCharactersForPlayer(roleplayId, userId);
+    advCharacterIds = new Set(characters.map(c => c.id)); // reflète les personnages attribués depuis le dernier état reçu
     const seance = adventureEngine.getSeance(roleplayId);
-    if (!characters.length || !seance) return;
+    if (!seance) return;
+    const existingInfo = seance.connectedPlayers.get(socket.id);
+    if (existingInfo) {
+      existingInfo.characters = characters.map(c => ({ id: c.id, name: c.name, icon: c.icon, tokenMediaId: c.tokenMediaId }));
+    }
     const roleplayDoc = await Roleplay.findById(roleplayId).select('gridSize');
     const mapVisible = !!seance.mapVisible;
     const hasMap = mapVisible && seance.nowShowing;

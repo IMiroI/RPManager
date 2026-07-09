@@ -234,7 +234,7 @@
         <div class="card" style="padding:24px;">
           <div class="section-header" style="margin-bottom:16px;">
             <h3 style="margin:0;">Créez votre personnage</h3>
-            <button class="btn btn-ghost btn-sm" id="create-back-btn" style="display:none;" onclick="showScreen('characters')">← Retour</button>
+            <button class="btn btn-ghost btn-sm" id="create-back-btn" style="display:none;" onclick="showCharactersScreen()">← Retour</button>
           </div>
 
           <div class="form-row">
@@ -465,8 +465,7 @@
         return;
       }
       myCharacters = await charRes.json();
-      if (myCharacters.length === 0) showCreateScreen();
-      else showCharactersScreen();
+      showCharactersScreen();
     })();
 
     // ─── Création de personnage ──────────────────────
@@ -475,7 +474,7 @@
     function showCreateScreen() {
       document.getElementById('create-adventure-name').textContent = adventure.name;
       document.getElementById('create-adventure-desc').textContent = adventure.description || '';
-      document.getElementById('create-back-btn').style.display = myCharacters.length > 0 ? '' : 'none';
+      document.getElementById('create-back-btn').style.display = '';
       pointBudget = adventure.pointBudget || 30;
       renderCreateStatsGrid();
       updatePointsCounter();
@@ -499,7 +498,7 @@
     function renderMyCharactersList() {
       const el = document.getElementById('my-characters-list');
       if (!myCharacters.length) {
-        el.innerHTML = '<p class="text-muted text-sm">Vous n\'avez pas encore de personnage sur cette aventure.</p>';
+        el.innerHTML = '<p class="text-muted text-sm">Vous n\'avez pas encore de personnage sur cette aventure — créez-en un ci-dessus, ou rejoignez directement la séance en direct ci-dessous si elle est ouverte (le MJ pourra vous attribuer un personnage).</p>';
         return;
       }
       el.innerHTML = myCharacters.map(c => `
@@ -769,6 +768,18 @@
         showToast(`${character.name} a été mis à jour par le MJ`, 'info');
       });
 
+      // Le MJ vient d'attribuer un PNJ comme nouveau personnage jouable — on l'ajoute et on bascule
+      // dessus, puis on redemande l'état complet pour que le serveur nous autorise à le contrôler
+      // (advCharacterIds n'est mis à jour côté serveur qu'au join/requestState).
+      socket.on('adv:player:npcAssigned', ({ character, npcName }) => {
+        myCharacters.push(character);
+        activeCharacterId = character.id;
+        renderCharacterSwitcher();
+        renderLiveCharacter(character);
+        showToast(`Le MJ vous a attribué ${npcName ? `« ${npcName} »` : 'un nouveau personnage'} : ${character.name} !`, 'success');
+        socket.emit('adv:player:requestState', { roleplayId: adventure.id });
+      });
+
       socket.on('adv:player:chapterChanged', ({ title }) => {
         document.getElementById('live-chapter-title').textContent = title || 'Aventure en cours';
         showToast(`Nouveau chapitre : ${title}`, 'info');
@@ -1013,7 +1024,8 @@
     }
 
     function sendGroupChat() {
-      if (!socket || !activeCharacterId) return;
+      if (!socket) return;
+      if (!activeCharacterId) { showToast('Créez un personnage (ou attendez que le MJ vous en attribue un) pour pouvoir écrire au groupe.', 'info'); return; }
       const input = document.getElementById('journal-chat-input');
       const text = input.value.trim();
       if (!text) return;
@@ -1022,7 +1034,8 @@
     }
 
     function rollGroupeDice() {
-      if (!socket || !activeCharacterId) return;
+      if (!socket) return;
+      if (!activeCharacterId) { showToast('Créez un personnage (ou attendez que le MJ vous en attribue un) pour pouvoir lancer des dés.', 'info'); return; }
       const count = parseInt(document.getElementById('live-groupe-dice-count').value) || 1;
       const sides = parseInt(document.getElementById('live-groupe-dice-sides').value) || 100;
       socket.emit('adv:player:rollDice', { roleplayId: adventure.id, count, sides, characterId: activeCharacterId });
