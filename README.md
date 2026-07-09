@@ -52,30 +52,27 @@ npm start
 
 ## Mise en production
 
-Avant d'exposer l'application publiquement, deux points sont **bloquants** :
+RoleMaster est déployé sur `https://rolemaster.vgames.fr` (serveur Hetzner
+Cloud, base de données MongoDB Atlas). Récapitulatif de la mise en place :
 
-### 1. HTTPS obligatoire
+### HTTPS
 
 RoleMaster suppose qu'un reverse proxy termine le HTTPS devant lui (le cookie
 de session est configuré en `secure:'auto'`, donc marqué sécurisé uniquement
-si la requête arrive effectivement en HTTPS). Sans ce proxy :
-- le cookie de session circule en clair (identifiants/session interceptables) ;
-- la connexion Socket.io (temps réel) n'est pas chiffrée non plus.
+si la requête arrive effectivement en HTTPS) — RoleMaster lui-même continue
+d'écouter en HTTP simple sur le port `3003`, jamais exposé directement sur
+Internet. En production, c'est **Caddy** qui gère ça (HTTPS automatique via
+Let's Encrypt). Deux configurations de référence sont fournies dans
+[`deploy/`](deploy/) : [`Caddyfile.example`](deploy/Caddyfile.example) (celle
+utilisée) et [`nginx.conf.example`](deploy/nginx.conf.example) en alternative.
 
-Deux configurations de référence sont fournies dans [`deploy/`](deploy/) :
-[`Caddyfile.example`](deploy/Caddyfile.example) (le plus simple — HTTPS
-automatique via Let's Encrypt) et [`nginx.conf.example`](deploy/nginx.conf.example).
-RoleMaster lui-même continue d'écouter en HTTP simple sur le port `3003`,
-jamais exposé directement sur Internet.
-
-### 2. Page légale à compléter
+### Page légale
 
 [`public/legal.html`](public/legal.html) (mentions légales + politique de
 confidentialité, liée depuis la connexion, l'inscription et le tableau de
-bord) contient des informations à compléter avant mise en ligne réelle :
-identité de l'éditeur, email de contact, et hébergeur. La page signale
-elle-même ces champs par un bandeau d'avertissement tant qu'ils ne sont pas
-remplacés.
+bord) est à jour : hébergement chez Hetzner Online GmbH (application) et
+MongoDB Atlas région Paris/eu-west-3 (base de données) — toutes deux dans
+l'Union européenne.
 
 ### Ce qui est déjà en place
 
