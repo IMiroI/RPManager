@@ -12,11 +12,13 @@ const { randomBytes } = require('crypto');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const session = require('express-session');
+const cookieParser = require('cookie-parser');
 const { MongoStore } = require('connect-mongo');
 const { GameEngine } = require('./gameEngine');
 const rp = require('./roleplaysManager');
 const { connectDB, MONGODB_URI } = require('./db');
-const { router: authRouter, requireAuth } = require('./auth');
+const User = require('./models/User');
+const { router: authRouter, requireAuth, readVgamesProfile } = require('./auth');
 const { router: adventuresRouter } = require('./adventures');
 const adv = require('./adventuresManager');
 const adventureEngine = require('./adventureEngine');
@@ -61,6 +63,7 @@ app.use(rateLimit({
 }));
 app.set('trust proxy', 1);
 app.use(express.json({ limit: '2mb' }));
+app.use(cookieParser());
 
 const sessionMiddleware = session({
   secret: SESSION_SECRET,
@@ -78,6 +81,29 @@ app.use(sessionMiddleware);
 // Rend req.session disponible sur les sockets Aventure (socket.request.session) —
 // les handlers gm:*/player: * existants ne le lisent jamais, comportement OneShot inchangé.
 io.engine.use(sessionMiddleware);
+
+// Reconnecte silencieusement une session RoleMaster à partir du cookie VGAMES,
+// seulement si un compte est déjà lié (vgamesId) — ne crée jamais de compte ici,
+// pour laisser à un utilisateur avec un ancien compte la chance de le lier
+// via "Lier mon compte VGAMES" plutôt que de se retrouver avec un compte miroir
+// tout neuf créé silencieusement à sa première visite (voir auth.js).
+async function syncVgamesSession(req, res, next) {
+  if (req.session.userId) return next();
+  const profile = readVgamesProfile(req);
+  if (!profile) return next();
+  try {
+    const linked = await User.findOne({ vgamesId: profile.id });
+    if (linked) {
+      req.session.userId = linked._id.toString();
+      req.session.username = linked.username;
+    }
+  } catch (e) {
+    console.error('Erreur syncVgamesSession:', e);
+  }
+  next();
+}
+app.use(syncVgamesSession);
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ─── API Auth ────────────────────────────────────────
@@ -191,7 +217,8 @@ app.delete('/api/sessions/:code', (req, res) => {
 
 // ─── Pages ───────────────────────────────────────────
 app.get('/login', (req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
-app.get('/register', (req, res) => res.sendFile(path.join(__dirname, 'public', 'register.html')));
+// Plus d'inscription locale — tous les nouveaux comptes passent par VGAMES.
+app.get('/register', (req, res) => res.redirect(`${process.env.VGAMES_URL || 'http://localhost:3000'}/signup`));
 app.get('/legal', (req, res) => res.sendFile(path.join(__dirname, 'public', 'legal.html')));
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 app.get('/editor', (req, res) => res.sendFile(path.join(__dirname, 'public', 'editor.html')));

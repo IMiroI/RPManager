@@ -94,6 +94,9 @@
       font-size: 0.85rem;
       color: var(--text-muted);
     }
+    .auth-step { display: none; }
+    .auth-step.visible { display: block; }
+    .auth-step p { font-size: 0.85rem; color: var(--text-muted); text-align: center; margin-bottom: 18px; }
   </style>
 </head>
 <body>
@@ -106,24 +109,37 @@
 
     <div class="auth-card">
       <div class="auth-title">Connexion</div>
-      <div class="auth-sub">Accédez à vos roleplays</div>
+      <div class="auth-sub">Accédez à vos roleplays via VGAMES</div>
 
       <div class="auth-error" id="auth-error"></div>
 
-      <form id="login-form">
-        <div class="form-group">
-          <label class="form-label">Nom d'utilisateur</label>
-          <input type="text" class="form-input" id="username" autocomplete="username" required autofocus>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Mot de passe</label>
-          <input type="password" class="form-input" id="password" autocomplete="current-password" required>
-        </div>
-        <button type="submit" class="btn btn-gold" style="width:100%;justify-content:center;">Se connecter</button>
-      </form>
+      <!-- Pas de session VGAMES détectée -->
+      <div class="auth-step" id="step-connect">
+        <p>Connectez-vous d'abord sur VGAMES, le portail commun à tous les jeux.</p>
+        <a id="vgames-login-link" href="#" class="btn btn-gold" style="width:100%;justify-content:center;">Se connecter avec VGAMES</a>
+      </div>
 
-      <div class="auth-footer">
-        Pas encore de compte ? <a href="/register" id="register-link">Créer un compte</a>
+      <!-- Session VGAMES active, pas encore de compte RoleMaster lié -->
+      <div class="auth-step" id="step-choice">
+        <p>Compte VGAMES détecté. Première visite sur RoleMaster ?</p>
+        <button type="button" id="provision-btn" class="btn btn-gold" style="width:100%;justify-content:center;margin-bottom:10px;">Créer mon compte RoleMaster</button>
+        <button type="button" id="show-link-form" class="btn" style="width:100%;justify-content:center;">J'ai déjà un compte RoleMaster</button>
+      </div>
+
+      <!-- Liaison d'un ancien compte username/mot de passe -->
+      <div class="auth-step" id="step-link">
+        <p>Entrez les identifiants de votre ancien compte RoleMaster pour le lier à VGAMES.</p>
+        <form id="link-form">
+          <div class="form-group">
+            <label class="form-label">Ancien nom d'utilisateur</label>
+            <input type="text" class="form-input" id="legacy-username" autocomplete="username" required autofocus>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Ancien mot de passe</label>
+            <input type="password" class="form-input" id="legacy-password" autocomplete="current-password" required>
+          </div>
+          <button type="submit" class="btn btn-gold" style="width:100%;justify-content:center;">Lier mon compte</button>
+        </form>
       </div>
     </div>
 
@@ -133,37 +149,72 @@
   </main>
 
   <script>
-    const nextParam = new URLSearchParams(window.location.search).get('next');
-    if (nextParam) {
-      document.getElementById('register-link').href = `/register?next=${encodeURIComponent(nextParam)}`;
+    const steps = {
+      connect: document.getElementById('step-connect'),
+      choice: document.getElementById('step-choice'),
+      link: document.getElementById('step-link'),
+    };
+    const errorBox = document.getElementById('auth-error');
+
+    function showStep(name) {
+      Object.values(steps).forEach((el) => el.classList.remove('visible'));
+      steps[name].classList.add('visible');
     }
 
-    document.getElementById('login-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const username = document.getElementById('username').value.trim();
-      const password = document.getElementById('password').value;
-      const errorBox = document.getElementById('auth-error');
-      errorBox.style.display = 'none';
+    function showError(message) {
+      errorBox.textContent = message;
+      errorBox.style.display = 'block';
+    }
 
+    async function init() {
+      const res = await fetch('/api/auth/vgames-status');
+      const data = await res.json();
+
+      if (!data.vgamesAuthenticated) {
+        document.getElementById('vgames-login-link').href = `${data.vgamesUrl}/login`;
+        showStep('connect');
+        return;
+      }
+
+      // Si un compte était déjà lié, le serveur nous aurait déjà redirigés vers "/".
+      showStep('choice');
+    }
+
+    document.getElementById('provision-btn').addEventListener('click', async () => {
+      errorBox.style.display = 'none';
       try {
-        const res = await fetch('/api/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password })
-        });
+        const res = await fetch('/api/auth/vgames-provision', { method: 'POST' });
         const data = await res.json();
-        if (!res.ok) {
-          errorBox.textContent = data.error || 'Erreur de connexion';
-          errorBox.style.display = 'block';
-          return;
-        }
-        const next = new URLSearchParams(window.location.search).get('next');
-        window.location.href = next || '/';
+        if (!res.ok) return showError(data.error || 'Erreur lors de la création du compte.');
+        window.location.href = '/';
       } catch {
-        errorBox.textContent = 'Impossible de contacter le serveur.';
-        errorBox.style.display = 'block';
+        showError('Impossible de contacter le serveur.');
       }
     });
+
+    document.getElementById('show-link-form').addEventListener('click', () => showStep('link'));
+
+    document.getElementById('link-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errorBox.style.display = 'none';
+      const username = document.getElementById('legacy-username').value.trim();
+      const password = document.getElementById('legacy-password').value;
+
+      try {
+        const res = await fetch('/api/auth/link-legacy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+        });
+        const data = await res.json();
+        if (!res.ok) return showError(data.error || 'Identifiants incorrects.');
+        window.location.href = '/';
+      } catch {
+        showError('Impossible de contacter le serveur.');
+      }
+    });
+
+    init();
   </script>
 </body>
 </html>

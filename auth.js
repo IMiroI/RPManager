@@ -1,64 +1,114 @@
 // ============================================
-// auth.js — Routes d'authentification
+// auth.js — Authentification via SSO VGAMES
 // ============================================
 const express = require('express');
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 const User = require('./models/User');
 
 const router = express.Router();
-
-const USERNAME_RE = /^[a-zA-Z0-9_-]{3,30}$/;
 
 function requireAuth(req, res, next) {
   if (!req.session.userId) return res.status(401).json({ error: 'Non authentifié' });
   next();
 }
 
-router.post('/register', async (req, res) => {
+// Vérifie le cookie `jwt` posé par VGAMES (même SECRET_KEY, contrat HS256
+// { id, username }) — ne touche jamais à la session, juste une lecture.
+function readVgamesProfile(req) {
+  const token = req.cookies && req.cookies.jwt;
+  const secret = process.env.SECRET_KEY;
+  if (!token || !secret) return null;
   try {
-    const { username, password } = req.body;
-    if (typeof username !== 'string' || !USERNAME_RE.test(username)) {
-      return res.status(400).json({ error: 'Nom d\'utilisateur invalide (3-30 caractères, lettres/chiffres/-/_).' });
-    }
-    if (typeof password !== 'string' || password.length < 8) {
-      return res.status(400).json({ error: 'Le mot de passe doit contenir au moins 8 caractères.' });
-    }
-
-    const existing = await User.findOne({ username: username.toLowerCase() });
-    if (existing) return res.status(409).json({ error: 'Ce nom d\'utilisateur est déjà pris.' });
-
-    const passwordHash = await bcrypt.hash(password, 12);
-    const user = await User.create({ username: username.toLowerCase(), passwordHash });
-
-    req.session.userId = user._id.toString();
-    req.session.username = user.username;
-    res.status(201).json({ username: user.username });
-  } catch (e) {
-    console.error('Erreur register:', e);
-    res.status(500).json({ error: 'Erreur serveur' });
+    const payload = jwt.verify(token, secret);
+    if (typeof payload.id !== 'string' || typeof payload.username !== 'string') return null;
+    return payload;
+  } catch {
+    return null;
   }
+}
+
+function sanitizeUsername(raw) {
+  return String(raw || '').toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 30);
+}
+
+async function uniqueUsernameFrom(candidate, fallbackId) {
+  let base = sanitizeUsername(candidate);
+  if (base.length < 3) base = `joueur-${fallbackId.slice(-6)}`;
+  let username = base;
+  let suffix = 0;
+  // eslint-disable-next-line no-await-in-loop
+  while (await User.findOne({ username })) {
+    suffix += 1;
+    username = `${base}-${suffix}`.slice(0, 30);
+  }
+  return username;
+}
+
+// État SSO courant, sans effet de bord — alimente la page de login pour
+// choisir entre "créer un compte" et "lier un compte existant".
+router.get('/vgames-status', async (req, res) => {
+  const vgamesUrl = process.env.VGAMES_URL || 'http://localhost:3000';
+  const profile = readVgamesProfile(req);
+  if (!profile) return res.json({ vgamesAuthenticated: false, vgamesUrl });
+
+  const linked = await User.findOne({ vgamesId: profile.id });
+  res.json({
+    vgamesAuthenticated: true,
+    linked: !!linked,
+    suggestedUsername: linked ? linked.username : sanitizeUsername(profile.username),
+    vgamesUrl,
+  });
 });
 
-router.post('/login', async (req, res) => {
-  try {
-    const { username, password } = req.body;
-    if (typeof username !== 'string' || typeof password !== 'string') {
-      return res.status(400).json({ error: 'Identifiants invalides.' });
-    }
+// Crée (ou retrouve) le compte RoleMaster "miroir" lié à l'utilisateur VGAMES courant.
+router.post('/vgames-provision', async (req, res) => {
+  const profile = readVgamesProfile(req);
+  if (!profile) return res.status(401).json({ error: 'Cookie VGAMES absent ou invalide' });
 
-    const user = await User.findOne({ username: username.toLowerCase() });
-    if (!user) return res.status(401).json({ error: 'Identifiants incorrects.' });
-
-    const valid = await bcrypt.compare(password, user.passwordHash);
-    if (!valid) return res.status(401).json({ error: 'Identifiants incorrects.' });
-
-    req.session.userId = user._id.toString();
-    req.session.username = user.username;
-    res.json({ username: user.username });
-  } catch (e) {
-    console.error('Erreur login:', e);
-    res.status(500).json({ error: 'Erreur serveur' });
+  const existing = await User.findOne({ vgamesId: profile.id });
+  if (existing) {
+    req.session.userId = existing._id.toString();
+    req.session.username = existing.username;
+    return res.json({ username: existing.username });
   }
+
+  const username = await uniqueUsernameFrom(profile.username, profile.id);
+  const user = await User.create({ username, vgamesId: profile.id });
+
+  req.session.userId = user._id.toString();
+  req.session.username = user.username;
+  res.status(201).json({ username: user.username });
+});
+
+// Lie un compte RoleMaster existant (ancien username/mot de passe) au compte
+// VGAMES courant — les Roleplay/AdventureCharacter existants restent intacts
+// puisque User._id ne change pas.
+router.post('/link-legacy', async (req, res) => {
+  const profile = readVgamesProfile(req);
+  if (!profile) return res.status(401).json({ error: 'Cookie VGAMES absent ou invalide' });
+
+  const { username, password } = req.body;
+  if (typeof username !== 'string' || typeof password !== 'string') {
+    return res.status(400).json({ error: 'Identifiants invalides.' });
+  }
+
+  const user = await User.findOne({ username: username.toLowerCase() });
+  if (!user || !user.passwordHash) return res.status(401).json({ error: 'Identifiants incorrects.' });
+
+  const valid = await bcrypt.compare(password, user.passwordHash);
+  if (!valid) return res.status(401).json({ error: 'Identifiants incorrects.' });
+
+  if (user.vgamesId && user.vgamesId !== profile.id) {
+    return res.status(409).json({ error: 'Ce compte est déjà lié à un autre compte VGAMES.' });
+  }
+
+  user.vgamesId = profile.id;
+  await user.save();
+
+  req.session.userId = user._id.toString();
+  req.session.username = user.username;
+  res.json({ username: user.username });
 });
 
 router.post('/logout', (req, res) => {
@@ -73,4 +123,4 @@ router.get('/me', (req, res) => {
   res.json({ username: req.session.username });
 });
 
-module.exports = { router, requireAuth };
+module.exports = { router, requireAuth, readVgamesProfile };
