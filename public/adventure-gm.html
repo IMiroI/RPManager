@@ -1559,11 +1559,24 @@
       }
     }
 
+    // Un 1d100 isolé (percentile ou dé unique) suit la convention "bas = critique, haut = échec
+    // critique" : 0-5 en vert, 95-100 en rouge, sinon mise en évidence neutre.
+    function d100Span(value) {
+      const cls = value <= 5 ? 'roll-crit-success' : (value >= 95 ? 'roll-crit-fail' : 'roll-value');
+      return `<span class="${cls}">${value}</span>`;
+    }
+
     function formatJournalEntry(e) {
       if (e.kind === 'chat') return (e.mp ? '<span class="badge badge-gold mp-badge">🔒 Privé</span>' : '') + esc(e.text);
-      if (e.kind === 'skill') return `🎲 <strong>${esc(e.skillName)}</strong> : 1d100=${e.percentile} · 1d${e.diceSides}=<strong>${e.skillRoll}</strong>${e.visibility === 'gm' ? ' <span class="text-muted text-sm">(caché des joueurs)</span>' : ''}`;
-      if (e.kind === 'stat') return `🎲 <strong>${esc(e.statLabel)}</strong> (${e.statValue}) : 1d100=${e.percentile}${e.statModifier ? ` ${e.statModifier > 0 ? '+' : ''}${e.statModifier} = <strong>${e.total}</strong>` : ` = <strong>${e.percentile}</strong>`} <span class="text-muted text-sm">${e.visibility === 'gm' ? '(caché des joueurs)' : '(privé)'}</span>`;
-      if (e.kind === 'dice') return `🎲 ${e.count}d${e.sides} → ${e.rolls.join(', ')} = <strong>${e.total}</strong>`;
+      if (e.kind === 'skill') return `🎲 <strong>${esc(e.skillName)}</strong> : 1d100=${d100Span(e.percentile)} · 1d${e.diceSides}=<strong>${e.skillRoll}</strong>${e.visibility === 'gm' ? ' <span class="text-muted text-sm">(caché des joueurs)</span>' : ''}`;
+      if (e.kind === 'stat') {
+        const mod = e.statModifier ? ` ${e.statModifier > 0 ? '+' : ''}${e.statModifier} = <span class="roll-total">${e.total}</span>` : '';
+        return `🎲 <strong>${esc(e.statLabel)}</strong> (${e.statValue}) : 1d100=${d100Span(e.percentile)}${mod} <span class="text-muted text-sm">${e.visibility === 'gm' ? '(caché des joueurs)' : '(privé)'}</span>`;
+      }
+      if (e.kind === 'dice') {
+        const rollsHtml = e.sides === 100 ? e.rolls.map(d100Span).join(', ') : e.rolls.join(', ');
+        return `🎲 ${e.count}d${e.sides} → ${rollsHtml} = <span class="roll-total">${e.total}</span>`;
+      }
       return '';
     }
 

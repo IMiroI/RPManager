@@ -256,6 +256,19 @@
 .journal-chat-row { display: flex; gap: 6px; }
 .journal-chat-row input { flex: 1; }
 
+/* ─── Mise en évidence des résultats de jet dans le journal de groupe ──── */
+.roll-value, .roll-total, .roll-crit-success, .roll-crit-fail {
+  display: inline-block;
+  font-weight: 800;
+  font-size: 1.5em;
+  line-height: 1;
+  vertical-align: middle;
+}
+.roll-total { color: var(--gold-light); }
+/* Jet de 1d100 : convention "percentile" — bas = réussite critique, haut = échec critique. */
+.roll-crit-success { color: var(--success); }
+.roll-crit-fail { color: var(--danger); }
+
 /* ─── Autocomplétion "/mp NomDuJoueur" (chat de groupe MJ) ──── */
 .mp-autocomplete {
   position: absolute;
