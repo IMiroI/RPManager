@@ -18,12 +18,23 @@ function requireAuth(req, res, next) {
 function readVgamesProfile(req) {
   const token = req.cookies && req.cookies.jwt;
   const secret = process.env.SECRET_KEY;
-  if (!token || !secret) return null;
+  if (!token) {
+    console.log('[vgames-sso] pas de cookie jwt reçu');
+    return null;
+  }
+  if (!secret) {
+    console.error('[vgames-sso] SECRET_KEY manquante côté RoleMaster');
+    return null;
+  }
   try {
     const payload = jwt.verify(token, secret);
-    if (typeof payload.id !== 'string' || typeof payload.username !== 'string') return null;
+    if (typeof payload.id !== 'string' || typeof payload.username !== 'string') {
+      console.error('[vgames-sso] payload JWT valide mais forme inattendue:', payload);
+      return null;
+    }
     return payload;
-  } catch {
+  } catch (err) {
+    console.error('[vgames-sso] échec de vérification du JWT:', err.message);
     return null;
   }
 }
